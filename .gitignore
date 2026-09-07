@@ -1,0 +1,11 @@
+# Local environment variables and secrets
+.env
+
+# Go build and test outputs
+/recall
+/bin/
+*.test
+*.out
+
+# macOS metadata
+.DS_Store
