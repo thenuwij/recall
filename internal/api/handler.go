@@ -9,19 +9,26 @@ import (
 	"strings"
 	"time"
 	"uuid"
+
+	"github.com/thenujawijesuriya/recall/internal/chunking"
 )
 
-const maxRequestBodyBytes = 1 << 20 // 1 MiB, including the JSON wrapper.
+const (
+	maxRequestBodyBytes      = 1 << 20 // 1 MiB, including the JSON wrapper.
+	defaultChunkMaxWords     = 200
+	defaultChunkOverlapWords = 40
+)
 
 var errDocumentNotFound = errors.New("document not found")
 
 type documentStore interface {
-	createDocument(ctx context.Context, content string) (string, error)
+	createDocument(ctx context.Context, content string, chunks []string) (string, error)
 	getDocument(ctx context.Context, id string) (document, error)
 }
 
 type handler struct {
-	store documentStore
+	store    documentStore
+	splitter chunking.WordSplitter
 }
 
 type submitDocumentRequest struct {
@@ -43,7 +50,12 @@ type errorResponse struct {
 }
 
 func NewHandler(store documentStore) http.Handler {
-	h := &handler{store: store}
+	splitter, err := chunking.NewWordSplitter(defaultChunkMaxWords, defaultChunkOverlapWords)
+	if err != nil {
+		panic(err)
+	}
+
+	h := &handler{store: store, splitter: splitter}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.health)
@@ -82,7 +94,8 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.store.createDocument(r.Context(), request.Content)
+	chunks := h.splitter.Split(request.Content)
+	id, err := h.store.createDocument(r.Context(), request.Content, chunks)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not store document"})
 		return

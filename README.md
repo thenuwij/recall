@@ -1,6 +1,6 @@
 # Recall
 
-Recall will become a retrieval-augmented generation service written in Go. It accepts plain-text documents over HTTP and stores them in PostgreSQL.
+Recall will become a retrieval-augmented generation service written in Go. It accepts plain-text documents over HTTP, stores them in PostgreSQL, and divides them into overlapping chunks for later retrieval and embedding.
 
 ## Run Recall
 
@@ -41,9 +41,10 @@ The request body limit is 1 MiB, including the JSON wrapper.
 ## Request flow
 
 1. `net/http` routes a request to the matching handler.
-2. `POST /documents` decodes and validates JSON before inserting content through the PostgreSQL store.
-3. `GET /documents/{id}` validates the UUID before retrieving the matching row.
-4. The handler translates results into JSON and meaningful HTTP status codes.
+2. `POST /documents` decodes and validates JSON, then divides the content into overlapping word-based chunks.
+3. The PostgreSQL store saves the original document and all of its chunks in one transaction.
+4. `GET /documents/{id}` validates the UUID before retrieving the matching row.
+5. The handler translates results into JSON and meaningful HTTP status codes.
 
 The handler depends on a small storage interface. The running application uses PostgreSQL, while handler tests use an in-memory implementation.
 
@@ -67,6 +68,18 @@ docker compose exec -T postgres psql -U recall -d recall < migrations/001_create
 The migration enables pgvector for later milestones and creates a `documents` table containing a UUID, non-blank document text, and a creation timestamp.
 
 The Go API uses pgx to create and retrieve documents in PostgreSQL. A stored document can be retrieved after restarting the API because its data belongs to PostgreSQL rather than the Go process.
+
+## Milestone 2 document chunking
+
+Apply the chunk-storage migration after migration 001:
+
+```sh
+docker compose exec -T postgres psql -U recall -d recall < migrations/002_create_document_chunks.sql
+```
+
+New documents are split into chunks containing at most 200 whitespace-separated words. Consecutive chunks overlap by 40 words so context near a boundary is available to both chunks. Chunk whitespace is normalized, while the original document content remains unchanged.
+
+The API stores the document and its ordered, zero-indexed chunks in a single PostgreSQL transaction. If any insert fails, PostgreSQL rolls back the document and all preceding chunk inserts together. Documents created before migration 002 are not backfilled automatically and may have no chunks.
 
 ## Documentation map
 

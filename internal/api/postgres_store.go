@@ -16,15 +16,37 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-func (s *PostgresStore) createDocument(ctx context.Context, content string) (string, error) {
-	const query = `
+func (s *PostgresStore) createDocument(ctx context.Context, content string, chunks []string) (string, error) {
+	transaction, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = transaction.Rollback(ctx)
+	}()
+
+	const insertDocumentQuery = `
 		INSERT INTO documents (id, content)
 		VALUES (gen_random_uuid(), $1)
 		RETURNING id::text
 	`
 
 	var id string
-	if err := s.pool.QueryRow(ctx, query, content).Scan(&id); err != nil {
+	if err := transaction.QueryRow(ctx, insertDocumentQuery, content).Scan(&id); err != nil {
+		return "", err
+	}
+
+	const insertChunkQuery = `
+		INSERT INTO document_chunks (document_id, chunk_index, content)
+		VALUES ($1, $2, $3)
+	`
+	for index, chunk := range chunks {
+		if _, err := transaction.Exec(ctx, insertChunkQuery, id, index, chunk); err != nil {
+			return "", err
+		}
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
 		return "", err
 	}
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,14 +16,18 @@ import (
 type memoryStore struct {
 	mu        sync.RWMutex
 	documents map[string]document
+	chunks    map[string][]string
 	err       error
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{documents: make(map[string]document)}
+	return &memoryStore{
+		documents: make(map[string]document),
+		chunks:    make(map[string][]string),
+	}
 }
 
-func (s *memoryStore) createDocument(_ context.Context, content string) (string, error) {
+func (s *memoryStore) createDocument(_ context.Context, content string, chunks []string) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
@@ -30,6 +35,7 @@ func (s *memoryStore) createDocument(_ context.Context, content string) (string,
 	const id = "test-document-id"
 	s.mu.Lock()
 	s.documents[id] = document{ID: id, Content: content}
+	s.chunks[id] = append([]string(nil), chunks...)
 	s.mu.Unlock()
 	return id, nil
 }
@@ -65,11 +71,10 @@ func TestHealth(t *testing.T) {
 
 func TestSubmitDocumentCallsStore(t *testing.T) {
 	store := newMemoryStore()
-	h := &handler{store: store}
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"stored temporarily"}`))
 	response := httptest.NewRecorder()
 
-	h.submitDocument(response, request)
+	NewHandler(store).ServeHTTP(response, request)
 
 	var result submitDocumentResponse
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
@@ -78,9 +83,13 @@ func TestSubmitDocumentCallsStore(t *testing.T) {
 
 	store.mu.RLock()
 	storedContent := store.documents[result.ID].Content
+	storedChunks := append([]string(nil), store.chunks[result.ID]...)
 	store.mu.RUnlock()
 	if storedContent != "stored temporarily" {
 		t.Fatalf("stored content = %q, want %q", storedContent, "stored temporarily")
+	}
+	if want := []string{"stored temporarily"}; !slices.Equal(storedChunks, want) {
+		t.Fatalf("stored chunks = %#v, want %#v", storedChunks, want)
 	}
 }
 

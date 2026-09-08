@@ -32,3 +32,24 @@
 - A direct SQL query found the same UUID, content, and creation timestamp in the `documents` table.
 - After the Go API restarted, `GET /documents/{id}` returned the same stored document.
 - Live requests returned `400 Bad Request` for a malformed UUID and `404 Not Found` for a valid missing UUID.
+
+## Milestone 2: document chunking
+
+- Chunking converts a large document into smaller retrieval units while retaining the unchanged source document.
+- `strings.Fields` treats consecutive whitespace as separators and gives chunks a consistent single-space representation.
+- With a 200-word maximum and 40-word overlap, the splitter advances by 160 words for each new chunk.
+- Validating that overlap is smaller than the maximum guarantees a positive step and prevents an infinite loop.
+- `chunk_index` records deterministic ordering independently of chunk UUIDs.
+- A database transaction groups the document insert and every chunk insert into one atomic operation. Returning before commit causes the deferred rollback to discard partial data.
+- `ON DELETE CASCADE` ensures deleting a document also deletes its dependent chunks.
+- A schema migration does not automatically transform old rows. Existing documents need a separately designed backfill before they can participate in retrieval.
+
+### Evidence
+
+- Focused chunking tests passed for invalid configuration, blank input, short and exact-size input, overlapping windows, whitespace normalization, and Unicode text.
+- Focused API tests passed and confirmed that a submitted document produces the expected chunk passed to storage.
+- `go test ./...` passed across the project.
+- PostgreSQL migration 002 was present in the development database.
+- A 201-word API submission preserved the original document exactly and created two chunks at indexes 0 and 1.
+- The stored chunks contained 200 and 41 words. Chunk 1 began at word 161, and its first 40 words exactly matched chunk 0's final 40 words.
+- Both chunks referenced the submitted document through `document_id`.
