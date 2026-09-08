@@ -57,3 +57,27 @@ This file records important choices and their trade-offs. We only add a decision
 **Why:** Schema migration and data backfill have different operational risks. Keeping them separate makes the initial migration simple and lets us design a restartable backfill when it is needed.
 
 **Trade-off:** Pre-chunking documents cannot participate in retrieval until a later backfill processes them.
+
+## 8. Use text-embedding-3-small with 1,536 dimensions
+
+**Decision:** Generate embeddings with OpenAI `text-embedding-3-small` and explicitly request 1,536 float values.
+
+**Why:** The smaller third-generation model provides a practical cost/performance starting point for semantic search. An explicit dimension makes the provider response and PostgreSQL `vector(1536)` schema agree visibly.
+
+**Trade-off:** Recall now depends on an external paid service, and changing models or dimensions requires a deliberate re-embedding and schema-compatibility plan.
+
+## 9. Generate embeddings before opening the storage transaction
+
+**Decision:** Split and embed all chunks before beginning the PostgreSQL transaction that stores the document and chunks.
+
+**Why:** A slow provider request should not hold a database connection and transaction open. Provider failure therefore occurs before any document data is inserted.
+
+**Trade-off:** If embedding succeeds but database storage fails, the paid embedding work is discarded and a retry generates it again. Background jobs can later provide resumability and more efficient retries.
+
+## 10. Keep embedding columns nullable for now
+
+**Decision:** Add nullable vector, model, and timestamp columns to `document_chunks`.
+
+**Why:** Existing chunks predate embedding generation. Nullable columns preserve them without inventing vectors or combining schema migration with a network-dependent backfill.
+
+**Trade-off:** Retrieval queries must exclude null embeddings until a backfill is implemented.

@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,7 +18,7 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-func (s *PostgresStore) createDocument(ctx context.Context, content string, chunks []string) (string, error) {
+func (s *PostgresStore) createDocument(ctx context.Context, content string, chunks []documentChunk) (string, error) {
 	transaction, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", err
@@ -37,11 +39,19 @@ func (s *PostgresStore) createDocument(ctx context.Context, content string, chun
 	}
 
 	const insertChunkQuery = `
-		INSERT INTO document_chunks (document_id, chunk_index, content)
-		VALUES ($1, $2, $3)
+		INSERT INTO document_chunks (document_id, chunk_index, content, embedding, embedding_model, embedded_at)
+		VALUES ($1, $2, $3, $4::vector, $5, now())
 	`
 	for index, chunk := range chunks {
-		if _, err := transaction.Exec(ctx, insertChunkQuery, id, index, chunk); err != nil {
+		if _, err := transaction.Exec(
+			ctx,
+			insertChunkQuery,
+			id,
+			index,
+			chunk.Content,
+			formatVector(chunk.Embedding),
+			chunk.EmbeddingModel,
+		); err != nil {
 			return "", err
 		}
 	}
@@ -51,6 +61,19 @@ func (s *PostgresStore) createDocument(ctx context.Context, content string, chun
 	}
 
 	return id, nil
+}
+
+func formatVector(values []float32) string {
+	var result strings.Builder
+	result.WriteByte('[')
+	for index, value := range values {
+		if index > 0 {
+			result.WriteByte(',')
+		}
+		result.WriteString(strconv.FormatFloat(float64(value), 'g', -1, 32))
+	}
+	result.WriteByte(']')
+	return result.String()
 }
 
 func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, error) {

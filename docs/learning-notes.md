@@ -53,3 +53,24 @@
 - A 201-word API submission preserved the original document exactly and created two chunks at indexes 0 and 1.
 - The stored chunks contained 200 and 41 words. Chunk 1 began at word 161, and its first 40 words exactly matched chunk 0's final 40 words.
 - Both chunks referenced the submitted document through `document_id`.
+
+## Milestone 3: embeddings
+
+- An embedding represents text as a fixed-length vector. Related text should occupy nearby positions, enabling semantic rather than exact-keyword search.
+- Recall uses OpenAI `text-embedding-3-small` with 1,536 dimensions. The application requests the dimension explicitly and validates every response before storage.
+- The embedding client sits behind a small handler interface. Production uses OpenAI, while tests use a deterministic fake or local `httptest.Server`.
+- Provider response indexes are used to restore input order instead of assuming response array order.
+- Large chunk collections are divided into bounded provider requests. An error in any batch prevents database storage.
+- The API key is read from `OPENAI_API_KEY`; secrets stay in an ignored `.env` file and must not be logged or committed.
+- Embedding calls happen before the PostgreSQL transaction. This avoids holding a transaction open during network latency.
+- A provider failure maps to `502 Bad Gateway` because Recall acted as a gateway to an upstream dependency. Storage failures remain `500 Internal Server Error`.
+- pgvector accepts a bracketed vector representation such as `[1,-2.5,0]`. Recall builds that value separately and passes it as a parameter cast to `vector`, rather than concatenating it into SQL.
+- Nullable embedding fields make older chunks identifiable for a later backfill. Retrieval must ignore null vectors.
+
+### Evidence
+
+- Focused embedding client tests passed for authentication and request shape, output ordering, empty input, provider HTTP failure, result count, index validation, and vector dimensions.
+- Focused API tests passed for vector attachment, model metadata, provider failure, and the rule that a failed embedding stores no document.
+- `go test ./...` passed across the project.
+- Migration 003 applied successfully and PostgreSQL reported nullable `vector`, `text`, and `timestamptz` columns.
+- One authorized live request created document `4b412905-3d69-490b-a208-f71db7086112` with a linked chunk containing a 1,536-dimensional `text-embedding-3-small` vector and embedding timestamp.

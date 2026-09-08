@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/thenujawijesuriya/recall/internal/chunking"
+	"github.com/thenujawijesuriya/recall/internal/embedding"
 )
 
 const (
@@ -22,12 +23,17 @@ const (
 var errDocumentNotFound = errors.New("document not found")
 
 type documentStore interface {
-	createDocument(ctx context.Context, content string, chunks []string) (string, error)
+	createDocument(ctx context.Context, content string, chunks []documentChunk) (string, error)
 	getDocument(ctx context.Context, id string) (document, error)
+}
+
+type embeddingGenerator interface {
+	Embed(ctx context.Context, inputs []string) ([][]float32, error)
 }
 
 type handler struct {
 	store    documentStore
+	embedder embeddingGenerator
 	splitter chunking.WordSplitter
 }
 
@@ -45,17 +51,23 @@ type document struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type documentChunk struct {
+	Content        string
+	Embedding      []float32
+	EmbeddingModel string
+}
+
 type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewHandler(store documentStore) http.Handler {
+func NewHandler(store documentStore, embedder embeddingGenerator) http.Handler {
 	splitter, err := chunking.NewWordSplitter(defaultChunkMaxWords, defaultChunkOverlapWords)
 	if err != nil {
 		panic(err)
 	}
 
-	h := &handler{store: store, splitter: splitter}
+	h := &handler{store: store, embedder: embedder, splitter: splitter}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.health)
@@ -95,7 +107,26 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chunks := h.splitter.Split(request.Content)
-	id, err := h.store.createDocument(r.Context(), request.Content, chunks)
+	embeddings, err := h.embedder.Embed(r.Context(), chunks)
+	if err != nil || len(embeddings) != len(chunks) {
+		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not generate document embeddings"})
+		return
+	}
+
+	storedChunks := make([]documentChunk, len(chunks))
+	for index := range chunks {
+		if len(embeddings[index]) != embedding.Dimensions {
+			writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not generate document embeddings"})
+			return
+		}
+		storedChunks[index] = documentChunk{
+			Content:        chunks[index],
+			Embedding:      embeddings[index],
+			EmbeddingModel: embedding.Model,
+		}
+	}
+
+	id, err := h.store.createDocument(r.Context(), request.Content, storedChunks)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not store document"})
 		return

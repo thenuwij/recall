@@ -6,28 +6,29 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/thenujawijesuriya/recall/internal/embedding"
 )
 
 type memoryStore struct {
 	mu        sync.RWMutex
 	documents map[string]document
-	chunks    map[string][]string
+	chunks    map[string][]documentChunk
 	err       error
 }
 
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
 		documents: make(map[string]document),
-		chunks:    make(map[string][]string),
+		chunks:    make(map[string][]documentChunk),
 	}
 }
 
-func (s *memoryStore) createDocument(_ context.Context, content string, chunks []string) (string, error) {
+func (s *memoryStore) createDocument(_ context.Context, content string, chunks []documentChunk) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
@@ -35,9 +36,35 @@ func (s *memoryStore) createDocument(_ context.Context, content string, chunks [
 	const id = "test-document-id"
 	s.mu.Lock()
 	s.documents[id] = document{ID: id, Content: content}
-	s.chunks[id] = append([]string(nil), chunks...)
+	storedChunks := make([]documentChunk, len(chunks))
+	for index, chunk := range chunks {
+		storedChunks[index] = chunk
+		storedChunks[index].Embedding = append([]float32(nil), chunk.Embedding...)
+	}
+	s.chunks[id] = storedChunks
 	s.mu.Unlock()
 	return id, nil
+}
+
+type fakeEmbedder struct {
+	err error
+}
+
+func (e *fakeEmbedder) Embed(_ context.Context, inputs []string) ([][]float32, error) {
+	if e.err != nil {
+		return nil, e.err
+	}
+
+	result := make([][]float32, len(inputs))
+	for index := range inputs {
+		result[index] = make([]float32, embedding.Dimensions)
+		result[index][0] = float32(index + 1)
+	}
+	return result, nil
+}
+
+func newTestHandler(store documentStore) http.Handler {
+	return NewHandler(store, &fakeEmbedder{})
 }
 
 func (s *memoryStore) getDocument(_ context.Context, id string) (document, error) {
@@ -59,7 +86,7 @@ func TestHealth(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	response := httptest.NewRecorder()
 
-	NewHandler(newMemoryStore()).ServeHTTP(response, request)
+	newTestHandler(newMemoryStore()).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
@@ -74,7 +101,7 @@ func TestSubmitDocumentCallsStore(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"stored temporarily"}`))
 	response := httptest.NewRecorder()
 
-	NewHandler(store).ServeHTTP(response, request)
+	newTestHandler(store).ServeHTTP(response, request)
 
 	var result submitDocumentResponse
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
@@ -83,13 +110,22 @@ func TestSubmitDocumentCallsStore(t *testing.T) {
 
 	store.mu.RLock()
 	storedContent := store.documents[result.ID].Content
-	storedChunks := append([]string(nil), store.chunks[result.ID]...)
+	storedChunks := append([]documentChunk(nil), store.chunks[result.ID]...)
 	store.mu.RUnlock()
 	if storedContent != "stored temporarily" {
 		t.Fatalf("stored content = %q, want %q", storedContent, "stored temporarily")
 	}
-	if want := []string{"stored temporarily"}; !slices.Equal(storedChunks, want) {
-		t.Fatalf("stored chunks = %#v, want %#v", storedChunks, want)
+	if len(storedChunks) != 1 {
+		t.Fatalf("stored chunk count = %d, want 1", len(storedChunks))
+	}
+	if storedChunks[0].Content != "stored temporarily" {
+		t.Fatalf("stored chunk content = %q, want %q", storedChunks[0].Content, "stored temporarily")
+	}
+	if len(storedChunks[0].Embedding) != embedding.Dimensions || storedChunks[0].Embedding[0] != 1 {
+		t.Fatal("stored chunk does not contain the generated embedding")
+	}
+	if storedChunks[0].EmbeddingModel != embedding.Model {
+		t.Fatalf("stored embedding model = %q, want %q", storedChunks[0].EmbeddingModel, embedding.Model)
 	}
 }
 
@@ -131,7 +167,7 @@ func TestSubmitDocument(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(tt.body))
 			response := httptest.NewRecorder()
 
-			NewHandler(newMemoryStore()).ServeHTTP(response, request)
+			newTestHandler(newMemoryStore()).ServeHTTP(response, request)
 
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d; body = %s", response.Code, tt.wantStatus, response.Body.String())
@@ -149,13 +185,32 @@ func TestSubmitDocumentHandlesStoreFailure(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"valid content"}`))
 	response := httptest.NewRecorder()
 
-	NewHandler(store).ServeHTTP(response, request)
+	newTestHandler(store).ServeHTTP(response, request)
 
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusInternalServerError)
 	}
 	if got := response.Body.String(); got != "{\"error\":\"could not store document\"}\n" {
 		t.Fatalf("body = %q", got)
+	}
+}
+
+func TestSubmitDocumentHandlesEmbeddingFailure(t *testing.T) {
+	store := newMemoryStore()
+	embedder := &fakeEmbedder{err: errors.New("provider unavailable")}
+	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"valid content"}`))
+	response := httptest.NewRecorder()
+
+	NewHandler(store, embedder).ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadGateway)
+	}
+	if got := response.Body.String(); got != "{\"error\":\"could not generate document embeddings\"}\n" {
+		t.Fatalf("body = %q", got)
+	}
+	if len(store.documents) != 0 {
+		t.Fatal("document was stored after embedding generation failed")
 	}
 }
 
@@ -171,7 +226,7 @@ func TestGetDocument(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/documents/"+id, nil)
 	response := httptest.NewRecorder()
 
-	NewHandler(store).ServeHTTP(response, request)
+	newTestHandler(store).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusOK, response.Body.String())
@@ -218,7 +273,7 @@ func TestGetDocumentErrors(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "/documents/"+tt.id, nil)
 			response := httptest.NewRecorder()
 
-			NewHandler(store).ServeHTTP(response, request)
+			newTestHandler(store).ServeHTTP(response, request)
 
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d; body = %s", response.Code, tt.wantStatus, response.Body.String())
