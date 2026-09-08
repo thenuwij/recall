@@ -19,6 +19,16 @@ type memoryStore struct {
 	documents map[string]document
 	chunks    map[string][]documentChunk
 	err       error
+
+	searchResults []searchResult
+	searchErr     error
+	searchCalls   []searchCall
+}
+
+type searchCall struct {
+	embedding []float32
+	model     string
+	limit     int
 }
 
 func newMemoryStore() *memoryStore {
@@ -61,6 +71,22 @@ func (e *fakeEmbedder) Embed(_ context.Context, inputs []string) ([][]float32, e
 		result[index][0] = float32(index + 1)
 	}
 	return result, nil
+}
+
+func (s *memoryStore) searchChunks(_ context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error) {
+	s.mu.Lock()
+	s.searchCalls = append(s.searchCalls, searchCall{
+		embedding: append([]float32(nil), queryEmbedding...),
+		model:     model,
+		limit:     limit,
+	})
+	s.mu.Unlock()
+
+	if s.searchErr != nil {
+		return nil, s.searchErr
+	}
+
+	return s.searchResults, nil
 }
 
 func newTestHandler(store documentStore) http.Handler {

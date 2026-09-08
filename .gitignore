@@ -1,6 +1,9 @@
 # Local environment variables and secrets
 .env
 
+# Working documentation kept outside version control
+/docs/
+
 # Go build and test outputs
 /recall
 /bin/

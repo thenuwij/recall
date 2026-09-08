@@ -52,7 +52,8 @@ The request body limit is 1 MiB, including the JSON wrapper.
 3. The embedding client sends the chunks to OpenAI before a database transaction begins.
 4. The PostgreSQL store saves the original document, chunks, vectors, model IDs, and embedding timestamps in one transaction.
 5. `GET /documents/{id}` validates the UUID before retrieving the matching row.
-6. The handler translates results into JSON and meaningful HTTP status codes.
+6. `POST /search` validates the query and limit, embeds the query with the same model, and asks PostgreSQL for the nearest chunk vectors.
+7. The handler translates results into JSON and meaningful HTTP status codes.
 
 The handler depends on a small storage interface. The running application uses PostgreSQL, while handler tests use an in-memory implementation.
 
@@ -101,8 +102,53 @@ Recall uses OpenAI `text-embedding-3-small` and explicitly requests 1,536-dimens
 
 Embedding generation happens before PostgreSQL begins its transaction, avoiding an open database transaction while waiting on a network service. If OpenAI fails or returns malformed data, Recall responds with `502 Bad Gateway` and stores nothing. The new columns are nullable so chunks created before this milestone remain valid and can be backfilled later.
 
+## Milestone 4 semantic retrieval
+
+`POST /search` embeds a query with the same model used for stored chunks and returns the nearest chunks as evidence. No migration is required; retrieval reads the columns added by migration 003.
+
+```sh
+curl -i http://localhost:8080/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"How is data protected if a server suddenly fails?","limit":5}'
+```
+
+```json
+{
+  "results": [
+    {
+      "chunk_id": "20a050d5-b4d0-426b-84a0-37093a0e1e9d",
+      "document_id": "9e4a6ca8-5462-451c-a0d4-9858a67c5bc4",
+      "chunk_index": 0,
+      "content": "Information written to disk endures beyond ...",
+      "similarity": 0.3833
+    }
+  ]
+}
+```
+
+`query` must not be blank. `limit` is optional, defaults to 5, and must be between 1 and 20; an explicit `0` is rejected rather than treated as absent. Unknown fields, trailing JSON, and bodies above 1 MiB are rejected before any provider call, so an invalid request never costs an embedding.
+
+`similarity` is `1 - cosine_distance`, so higher means more relevant and `1.0` means identical direction. Results are ordered nearest first, with `(document_id, chunk_index)` breaking ties deterministically. Chunks with no embedding, or embedded by a different model, are excluded: vectors from different models are not comparable and would produce meaningless scores rather than an error.
+
+An empty result set is a successful search that found no evidence. It returns `200` with `{"results":[]}`, never `null`.
+
+A provider failure returns `502 Bad Gateway`, matching document ingestion. A database failure returns `500`.
+
+Retrieval performs an exact scan and there is no vector index yet. That is deliberate: an approximate index trades recall for speed, and the trade needs a measured baseline before it is worth making.
+
+### PostgreSQL integration tests
+
+Tests that require a database are skipped unless a connection string is provided:
+
+```sh
+RECALL_TEST_DATABASE_URL='postgres://recall:recall@localhost:5434/recall?sslmode=disable' \
+  go test ./internal/api/ -run TestPostgres -v -count=1
+```
+
+They insert a fixture with hand-built vectors, assert the ranking and exclusions, and delete the fixture afterwards. Without the variable they report `SKIP`, which is not the same as passing.
+
 ## Documentation map
 
-- `README.md`: what Recall does and how to run it.
-- `docs/learning-notes.md`: concepts learned and milestone evidence.
-- `docs/decisions.md`: important design choices and trade-offs.
+- `README.md`: what Recall does and how to run it. This is the only documentation kept in the repository.
+
+Design decisions, milestone evidence, and learning notes are maintained outside version control.

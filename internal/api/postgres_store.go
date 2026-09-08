@@ -98,3 +98,45 @@ func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, e
 
 	return result, nil
 }
+
+func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error) {
+	const query = `
+		SELECT
+			id::text,
+			document_id::text,
+			chunk_index,
+			content,
+			1 - (embedding <=> $1::vector) AS similarity
+		FROM document_chunks
+		WHERE embedding IS NOT NULL
+			AND embedding_model = $2
+		ORDER BY embedding <=> $1::vector, document_id, chunk_index
+		LIMIT $3
+	`
+
+	rows, err := s.pool.Query(ctx, query, formatVector(queryEmbedding), model, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := make([]searchResult, 0, limit)
+	for rows.Next() {
+		var result searchResult
+		if err := rows.Scan(
+			&result.ChunkID,
+			&result.DocumentID,
+			&result.ChunkIndex,
+			&result.Content,
+			&result.Similarity,
+		); err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
