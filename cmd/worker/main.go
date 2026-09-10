@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/thenujawijesuriya/recall/internal/api"
 	"github.com/thenujawijesuriya/recall/internal/embedding"
+	"github.com/thenujawijesuriya/recall/internal/queue"
 )
 
 func main() {
@@ -38,11 +39,26 @@ func main() {
 
 	// A cancelled context stops the loop between jobs rather than mid-job, so
 	// an interrupted worker leaves its lease to expire instead of losing work.
+	notifier, err := queue.NewStream(os.Getenv("REDIS_URL"), queue.DefaultStream, queue.DefaultGroup, "")
+	if err != nil {
+		log.Fatalf("configure job notifications: %v", err)
+	}
+	defer func() {
+		_ = notifier.Close()
+	}()
+
+	if err := notifier.Ping(connectionContext); err != nil {
+		log.Fatalf("connect to redis: %v", err)
+	}
+	if err := notifier.EnsureGroup(connectionContext); err != nil {
+		log.Fatalf("prepare job stream: %v", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	log.Print("Recall ingestion worker started")
-	if err := api.NewWorker(api.NewPostgresStore(pool), embeddingClient).Run(ctx); err != nil && ctx.Err() == nil {
+	if err := api.NewWorker(api.NewPostgresStore(pool), embeddingClient, notifier).Run(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("ingestion worker: %v", err)
 	}
 	log.Print("Recall ingestion worker stopped")

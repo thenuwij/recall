@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"github.com/thenujawijesuriya/recall/internal/embedding"
+	"github.com/thenujawijesuriya/recall/internal/queue"
 )
 
 const (
 	defaultJobLease    = 2 * time.Minute
 	defaultPollTimeout = 2 * time.Second
+	notifyBatchSize    = 16
 )
 
 type ingestionStore interface {
@@ -22,18 +24,25 @@ type ingestionStore interface {
 	failIngestionJob(ctx context.Context, job ingestionJob, reason string, permanent bool, backoff time.Duration) error
 }
 
+type jobNotifier interface {
+	Receive(ctx context.Context, count int64, block time.Duration) ([]queue.Message, error)
+	Ack(ctx context.Context, ids ...string) error
+}
+
 type Worker struct {
 	store    ingestionStore
 	embedder embeddingGenerator
+	notifier jobNotifier
 	lease    time.Duration
 	poll     time.Duration
 	logger   *log.Logger
 }
 
-func NewWorker(store *PostgresStore, embedder embeddingGenerator) *Worker {
+func NewWorker(store *PostgresStore, embedder embeddingGenerator, notifier jobNotifier) *Worker {
 	return &Worker{
 		store:    store,
 		embedder: embedder,
+		notifier: notifier,
 		lease:    defaultJobLease,
 		poll:     defaultPollTimeout,
 		logger:   log.Default(),
@@ -59,12 +68,61 @@ func (w *Worker) Run(ctx context.Context) error {
 			continue
 		}
 
+		if err := w.waitForWork(ctx); err != nil {
+			return err
+		}
+	}
+}
+
+func (w *Worker) waitForWork(ctx context.Context) error {
+	if w.notifier == nil {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(w.poll):
 		}
+
+		return nil
 	}
+
+	messages, err := w.notifier.Receive(ctx, notifyBatchSize, w.poll)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		w.logf("receive notification: %v", err)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(w.poll):
+		}
+
+		return nil
+	}
+
+	for _, message := range messages {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		worked, err := w.ProcessOne(ctx)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			w.logf("%v", err)
+		}
+		if err != nil {
+			continue
+		}
+		if !worked {
+			w.logf("notified job=%s but the queue was empty", message.JobID)
+		}
+
+		if err := w.notifier.Ack(ctx, message.ID); err != nil {
+			w.logf("acknowledge notification=%s: %v", message.ID, err)
+		}
+	}
+
+	return ctx.Err()
 }
 
 func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
