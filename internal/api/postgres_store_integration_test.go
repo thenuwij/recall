@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/thenujawijesuriya/recall/internal/embedding"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
@@ -170,5 +171,64 @@ func TestPostgresSearchChunksHonoursCancelledContext(t *testing.T) {
 
 	if _, err := store.searchChunks(ctx, testVector(1, 0), "text-embedding-3-small", 5); err == nil {
 		t.Fatal("searchChunks() error = nil, want an error for a cancelled context")
+	}
+}
+
+func TestPostgresCreateDocumentRollsBackOnChunkFailure(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+
+	const (
+		rollbackDocumentContent = "rollback integration document, must not survive"
+		rollbackChunkContent    = "rollback integration chunk, must not survive"
+	)
+
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx,
+			`DELETE FROM documents WHERE content = $1`,
+			rollbackDocumentContent,
+		); err != nil {
+			t.Errorf("clean up rollback document: %v", err)
+		}
+	})
+
+	chunks := []documentChunk{
+		{
+			Content:        rollbackChunkContent,
+			Embedding:      testVector(1, 0),
+			EmbeddingModel: embedding.Model,
+		},
+		{
+			Content:        "",
+			Embedding:      testVector(1, 0),
+			EmbeddingModel: embedding.Model,
+		},
+	}
+
+	if _, err := store.createDocument(ctx, rollbackDocumentContent, chunks); err == nil {
+		t.Fatal("createDocument() error = nil, want an error for a blank chunk")
+	}
+
+	var documents int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM documents WHERE content = $1`,
+		rollbackDocumentContent,
+	).Scan(&documents); err != nil {
+		t.Fatalf("count documents: %v", err)
+	}
+	if documents != 0 {
+		t.Errorf("documents = %d, want 0: a failed chunk insert left the document behind", documents)
+	}
+
+	var chunkRows int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM document_chunks WHERE content = $1`,
+		rollbackChunkContent,
+	).Scan(&chunkRows); err != nil {
+		t.Fatalf("count chunks: %v", err)
+	}
+	if chunkRows != 0 {
+		t.Errorf("document_chunks = %d, want 0: the first chunk survived a failed transaction", chunkRows)
 	}
 }
