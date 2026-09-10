@@ -11,6 +11,7 @@ import (
 	"github.com/thenujawijesuriya/recall/internal/api"
 	"github.com/thenujawijesuriya/recall/internal/embedding"
 	"github.com/thenujawijesuriya/recall/internal/generation"
+	"github.com/thenujawijesuriya/recall/internal/queue"
 )
 
 func main() {
@@ -40,6 +41,21 @@ func main() {
 		log.Fatalf("connect to database: %v", err)
 	}
 
+	publisher, err := queue.NewStream(os.Getenv("REDIS_URL"), queue.DefaultStream, queue.DefaultGroup, "")
+	if err != nil {
+		log.Fatalf("configure job notifications: %v", err)
+	}
+	defer func() {
+		_ = publisher.Close()
+	}()
+
+	if err := publisher.Ping(connectionContext); err != nil {
+		log.Fatalf("connect to redis: %v", err)
+	}
+	if err := publisher.EnsureGroup(connectionContext); err != nil {
+		log.Fatalf("prepare job stream: %v", err)
+	}
+
 	address := ":8080"
 	if port := os.Getenv("PORT"); port != "" {
 		address = ":" + port
@@ -47,7 +63,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              address,
-		Handler:           api.NewHandler(api.NewPostgresStore(pool), embeddingClient, answerClient),
+		Handler:           api.NewHandler(api.NewPostgresStore(pool), embeddingClient, answerClient, publisher),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

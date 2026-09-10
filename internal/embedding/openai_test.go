@@ -169,3 +169,58 @@ func writeTestResponse(w http.ResponseWriter, items []testResponseItem) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": items})
 }
+
+func TestProviderErrorClassifiesRetryableStatusCodes(t *testing.T) {
+	tests := []struct {
+		status    int
+		retryable bool
+	}{
+		{status: http.StatusTooManyRequests, retryable: true},
+		{status: http.StatusRequestTimeout, retryable: true},
+		{status: http.StatusInternalServerError, retryable: true},
+		{status: http.StatusBadGateway, retryable: true},
+		{status: http.StatusServiceUnavailable, retryable: true},
+		{status: http.StatusBadRequest, retryable: false},
+		{status: http.StatusUnauthorized, retryable: false},
+		{status: http.StatusForbidden, retryable: false},
+		{status: http.StatusNotFound, retryable: false},
+		{status: http.StatusUnprocessableEntity, retryable: false},
+	}
+
+	for _, tt := range tests {
+		err := &ProviderError{StatusCode: tt.status}
+		if got := err.Retryable(); got != tt.retryable {
+			t.Errorf("Retryable() for %d = %t, want %t", tt.status, got, tt.retryable)
+		}
+	}
+}
+
+func TestEmbedReturnsATypedProviderError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limit reached"}}`))
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAIClient("test-key")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	client.endpoint = server.URL
+
+	_, err = client.Embed(context.Background(), []string{"input"})
+	if err == nil {
+		t.Fatal("Embed() error = nil, want a provider error")
+	}
+
+	var providerError *ProviderError
+	if !errors.As(err, &providerError) {
+		t.Fatalf("Embed() error = %v, want it to unwrap to a ProviderError", err)
+	}
+	if providerError.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("StatusCode = %d, want %d", providerError.StatusCode, http.StatusTooManyRequests)
+	}
+	if !providerError.Retryable() {
+		t.Error("Retryable() = false, want true for a rate limit")
+	}
+}

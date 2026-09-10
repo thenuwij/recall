@@ -39,9 +39,9 @@ func newMemoryStore() *memoryStore {
 	}
 }
 
-func (s *memoryStore) createDocument(_ context.Context, content string, chunks []string) (string, error) {
+func (s *memoryStore) createDocument(_ context.Context, content string, chunks []string) (string, string, error) {
 	if s.err != nil {
-		return "", s.err
+		return "", "", s.err
 	}
 
 	const id = "test-document-id"
@@ -49,7 +49,17 @@ func (s *memoryStore) createDocument(_ context.Context, content string, chunks [
 	s.documents[id] = document{ID: id, Content: content, Status: statusQueued}
 	s.chunks[id] = append([]string(nil), chunks...)
 	s.mu.Unlock()
-	return id, nil
+	return id, "test-job-id", nil
+}
+
+type fakePublisher struct {
+	err       error
+	published []string
+}
+
+func (p *fakePublisher) Publish(_ context.Context, jobID string) error {
+	p.published = append(p.published, jobID)
+	return p.err
 }
 
 type fakeEmbedder struct {
@@ -110,7 +120,7 @@ func (g *fakeGenerator) GenerateAnswer(_ context.Context, query string, passages
 }
 
 func newTestHandler(store documentStore) http.Handler {
-	return NewHandler(store, &fakeEmbedder{}, &fakeGenerator{})
+	return NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, &fakePublisher{})
 }
 
 func (s *memoryStore) getDocument(_ context.Context, id string) (document, error) {
@@ -178,7 +188,7 @@ func TestSubmitDocumentDoesNotEmbedOnTheRequestPath(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"deferred work"}`))
 	response := httptest.NewRecorder()
 
-	NewHandler(store, embedder, &fakeGenerator{}).ServeHTTP(response, request)
+	NewHandler(store, embedder, &fakeGenerator{}, &fakePublisher{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusAccepted)
@@ -373,5 +383,44 @@ func TestGetDocumentErrors(t *testing.T) {
 				t.Fatalf("body = %q, want %q", got, tt.wantBody)
 			}
 		})
+	}
+}
+
+func TestSubmitDocumentPublishesTheJob(t *testing.T) {
+	store := newMemoryStore()
+	publisher := &fakePublisher{}
+	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"notify the worker"}`))
+	response := httptest.NewRecorder()
+
+	NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, publisher).ServeHTTP(response, request)
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusAccepted)
+	}
+	if len(publisher.published) != 1 {
+		t.Fatalf("published = %d, want 1", len(publisher.published))
+	}
+	if publisher.published[0] != "test-job-id" {
+		t.Errorf("published job = %q, want %q", publisher.published[0], "test-job-id")
+	}
+}
+
+func TestSubmitDocumentSucceedsWhenPublishingFails(t *testing.T) {
+	store := newMemoryStore()
+	publisher := &fakePublisher{err: errors.New("redis unavailable")}
+	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"durable regardless"}`))
+	response := httptest.NewRecorder()
+
+	NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, publisher).ServeHTTP(response, request)
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d: the document is durable even when the notification fails", response.Code, http.StatusAccepted)
+	}
+
+	store.mu.RLock()
+	stored := len(store.documents)
+	store.mu.RUnlock()
+	if stored != 1 {
+		t.Errorf("stored documents = %d, want 1", stored)
 	}
 }

@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	defaultJobLease    = 2 * time.Minute
-	defaultPollTimeout = 2 * time.Second
-	notifyBatchSize    = 16
+	defaultJobLease     = 2 * time.Minute
+	defaultPollInterval = 30 * time.Second
+	notifyBatchSize     = 16
 )
 
 type ingestionStore interface {
@@ -44,7 +44,7 @@ func NewWorker(store *PostgresStore, embedder embeddingGenerator, notifier jobNo
 		embedder: embedder,
 		notifier: notifier,
 		lease:    defaultJobLease,
-		poll:     defaultPollTimeout,
+		poll:     defaultPollInterval,
 		logger:   log.Default(),
 	}
 }
@@ -156,7 +156,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 
 	vectors, err := w.embedder.Embed(ctx, inputs)
 	if err != nil {
-		return true, w.fail(ctx, job, fmt.Sprintf("embed chunks: %v", err), false)
+		return true, w.fail(ctx, job, fmt.Sprintf("embed chunks: %v", err), permanentFailure(err))
 	}
 
 	if len(vectors) != len(pending) {
@@ -193,6 +193,15 @@ func (w *Worker) fail(ctx context.Context, job ingestionJob, reason string, perm
 	}
 
 	return errors.New(reason)
+}
+
+func permanentFailure(err error) bool {
+	var providerError *embedding.ProviderError
+	if errors.As(err, &providerError) {
+		return !providerError.Retryable()
+	}
+
+	return false
 }
 
 func retryBackoff(attempts int) time.Duration {

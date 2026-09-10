@@ -18,10 +18,10 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-func (s *PostgresStore) createDocument(ctx context.Context, content string, chunks []string) (string, error) {
+func (s *PostgresStore) createDocument(ctx context.Context, content string, chunks []string) (string, string, error) {
 	transaction, err := s.pool.Begin(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer func() {
 		_ = transaction.Rollback(ctx)
@@ -35,7 +35,7 @@ func (s *PostgresStore) createDocument(ctx context.Context, content string, chun
 
 	var id string
 	if err := transaction.QueryRow(ctx, insertDocumentQuery, content).Scan(&id); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	const insertChunkQuery = `
@@ -44,23 +44,25 @@ func (s *PostgresStore) createDocument(ctx context.Context, content string, chun
 	`
 	for index, chunk := range chunks {
 		if _, err := transaction.Exec(ctx, insertChunkQuery, id, index, chunk); err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
 
 	const insertJobQuery = `
 		INSERT INTO ingestion_jobs (document_id)
 		VALUES ($1)
+		RETURNING id::text
 	`
-	if _, err := transaction.Exec(ctx, insertJobQuery, id); err != nil {
-		return "", err
+	var jobID string
+	if err := transaction.QueryRow(ctx, insertJobQuery, id).Scan(&jobID); err != nil {
+		return "", "", err
 	}
 
 	if err := transaction.Commit(ctx); err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return id, nil
+	return id, jobID, nil
 }
 
 func formatVector(values []float32) string {

@@ -194,7 +194,7 @@ func TestPostgresCreateDocumentRollsBackOnChunkFailure(t *testing.T) {
 
 	chunks := []string{rollbackChunkContent, ""}
 
-	if _, err := store.createDocument(ctx, rollbackDocumentContent, chunks); err == nil {
+	if _, _, err := store.createDocument(ctx, rollbackDocumentContent, chunks); err == nil {
 		t.Fatal("createDocument() error = nil, want an error for a blank chunk")
 	}
 

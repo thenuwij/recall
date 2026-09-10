@@ -4,7 +4,7 @@ Recall is a retrieval-augmented generation service written in Go. It accepts pla
 
 ## Run Recall
 
-Requirements: Go 1.27 or later, PostgreSQL with pgvector, and an OpenAI API key.
+Requirements: Go 1.27 or later, PostgreSQL with pgvector, Redis, and an OpenAI API key.
 
 ```sh
 cp .env.example .env
@@ -15,7 +15,15 @@ set +a
 go run ./cmd/api
 ```
 
-Keep `OPENAI_API_KEY`, `DATABASE_URL`, and `PORT` in the ignored local `.env` file. Never commit the API key.
+Recall runs as two processes. Start the ingestion worker alongside the API:
+
+```sh
+go run ./cmd/worker
+```
+
+Documents are accepted by the API but embedded by the worker, so without the worker running a submitted document stays `queued` and never becomes searchable.
+
+Keep `OPENAI_API_KEY`, `DATABASE_URL`, `REDIS_URL`, and `PORT` in the ignored local `.env` file. Never commit the API key.
 
 The server listens on `http://localhost:8080`. Set `PORT` to use another port.
 
@@ -49,8 +57,8 @@ The request body limit is 1 MiB, including the JSON wrapper.
 
 1. `net/http` routes a request to the matching handler.
 2. `POST /documents` decodes and validates JSON, then divides the content into overlapping word-based chunks.
-3. The embedding client sends the chunks to OpenAI before a database transaction begins.
-4. The PostgreSQL store saves the original document, chunks, vectors, model IDs, and embedding timestamps in one transaction.
+3. The PostgreSQL store saves the document, its chunks without vectors, and a queued ingestion job in one transaction, then returns `202 Accepted`.
+4. The ingestion worker claims the job, sends its chunks to OpenAI, and writes the vectors and the completed job state in one transaction.
 5. `GET /documents/{id}` validates the UUID before retrieving the matching row.
 6. `POST /search` validates the query and limit, embeds the query with the same model, and asks PostgreSQL for the nearest chunk vectors.
 7. `POST /answer` retrieves the same evidence, refuses if it is too weak, and otherwise asks a language model for an answer that cites the passages it used.
@@ -103,7 +111,7 @@ Recall uses OpenAI `text-embedding-3-small` and explicitly requests 1,536-dimens
 
 Embedding generation happens before PostgreSQL begins its transaction, avoiding an open database transaction while waiting on a network service. If OpenAI fails or returns malformed data, Recall responds with `502 Bad Gateway` and stores nothing. The new columns are nullable so chunks created before this milestone remain valid and can be backfilled later.
 
-## Milestone 4 semantic retrieval
+## Milestone 4 part A semantic retrieval
 
 `POST /search` embeds a query with the same model used for stored chunks and returns the nearest chunks as evidence. No migration is required; retrieval reads the columns added by migration 003.
 
@@ -148,7 +156,7 @@ RECALL_TEST_DATABASE_URL='postgres://recall:recall@localhost:5434/recall?sslmode
 
 They insert a fixture with hand-built vectors, assert the ranking and exclusions, and delete the fixture afterwards. Without the variable they report `SKIP`, which is not the same as passing.
 
-## Milestone 5 cited answers
+## Milestone 4 part B cited answers
 
 `POST /answer` retrieves evidence, then asks a language model to write an answer grounded in it. No migration is required.
 
@@ -208,4 +216,71 @@ Answer generation uses OpenAI `gpt-4o-mini` with `temperature: 0` and a bounded 
 
 - `README.md`: what Recall does and how to run it. This is the only documentation kept in the repository.
 
+Milestone headings here match the numbered build pages kept outside the repository. Milestone 4 covers retrieval and cited answers as parts A and B of one page, as it does there.
+
 Design decisions, milestone evidence, and learning notes are maintained outside version control.
+
+## Milestone 5 background ingestion
+
+Embedding moved off the request path. Apply the ingestion job migration after migration 003:
+
+```sh
+docker compose exec -T postgres psql -U recall -d recall < migrations/004_create_ingestion_jobs.sql
+```
+
+Start Redis alongside PostgreSQL:
+
+```sh
+docker compose up -d postgres redis
+```
+
+Redis is available at `localhost:6381`. `POST /documents` now returns `202 Accepted` rather than `201 Created`:
+
+```json
+{ "id": "8a68b11b-4ed7-4d02-8b02-987daf57bf87", "status": "queued" }
+```
+
+`202` means the document is durable, not that it is searchable. `GET /documents/{id}` reports progress as `queued`, `processing`, `ready`, or `failed` with a reason. Documents created before migration 004 have no job row and report `unknown` rather than a guessed status.
+
+### How a document is ingested
+
+The API writes the document, its chunks with null embeddings, and an `ingestion_jobs` row at `queued` in a single transaction. That job row is a transactional outbox entry: PostgreSQL and Redis cannot commit together, so nothing is written to Redis inside the transaction. After the commit the job id is published to a Redis stream, and a failed publish is logged rather than returned, because the queued row is still in PostgreSQL.
+
+The worker claims a job with `SELECT ... FOR UPDATE SKIP LOCKED` under a two-minute lease, embeds only the chunks that still have a null embedding, and writes the vectors and the terminal job state in one transaction. Retrieval already excludes chunks with no embedding, so a document is invisible to search until its vectors exist rather than partially searchable.
+
+### Delivery and idempotency
+
+Redis delivers a wake-up, not a work item: the job id is carried for logging, and the worker claims whatever job is next. PostgreSQL decides which worker gets which job, so a duplicated notification is harmless and a lost one costs latency rather than work.
+
+The worker also claims directly from PostgreSQL every 30 seconds. Redis removes that latency; the poll is the backstop that catches a lost notification or a lease that expired because a worker stalled. Duplicate processing cannot duplicate data, because `UNIQUE (document_id, chunk_index)` already exists and chunking is deterministic.
+
+A message is acknowledged only after the transaction that writes its vectors commits. Acknowledging earlier would discard Redis's record of a job whose result was never stored.
+
+### Retries and failure
+
+Failures are classified before any retry. A provider `429`, `408`, or `5xx`, a timeout, or a lost connection is retryable. A provider `400`, a malformed response, or a wrong vector dimension is permanent, because retrying repeats identical work to fail identically.
+
+A retryable failure returns the job to `queued` with `claimed_until` set into the future, which is the backoff: roughly 5 seconds, then 30 seconds. Three attempts in total. A job that exhausts its attempts, or fails permanently, ends at `failed` with `attempts` and `last_error` recorded. Those rows are the dead letter and are inspectable with a query, so no separate dead-letter stream exists.
+
+Attempts are counted when a job is claimed rather than when a failure is reported. A worker killed mid-job never reports anything, so counting reported failures would let a job that kills its worker retry forever.
+
+Shutting a worker down is not a job failure. The job is left claimed, its lease expires, and another worker takes it without an attempt being spent.
+
+### Backfilling documents that predate embedding
+
+Chunks created before milestone 003 have null embeddings and no job. Giving them one makes them ordinary ingestion work:
+
+```sh
+docker compose exec -T postgres psql -U recall -d recall -c \
+  "INSERT INTO ingestion_jobs (document_id) SELECT DISTINCT document_id FROM document_chunks WHERE embedding IS NULL ON CONFLICT (document_id) DO NOTHING;"
+```
+
+### Redis integration tests
+
+Tests that require Redis are skipped unless a connection string is provided:
+
+```sh
+RECALL_TEST_REDIS_URL='redis://localhost:6381/0' go test ./internal/queue/ -v
+```
+
+As with the PostgreSQL integration tests, a skipped test is not a passing test.

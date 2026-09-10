@@ -22,6 +22,25 @@ const (
 
 var ErrInvalidAPIKey = errors.New("OpenAI API key must not be empty")
 
+type ProviderError struct {
+	StatusCode int
+	Status     string
+	Body       string
+}
+
+func (e *ProviderError) Error() string {
+	return fmt.Sprintf("OpenAI returned %s: %s", e.Status, e.Body)
+}
+
+func (e *ProviderError) Retryable() bool {
+	switch e.StatusCode {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests:
+		return true
+	}
+
+	return e.StatusCode >= http.StatusInternalServerError
+}
+
 // OpenAIClient generates embeddings through the OpenAI embeddings API.
 type OpenAIClient struct {
 	apiKey     string
@@ -108,7 +127,11 @@ func (c *OpenAIClient) embedBatch(ctx context.Context, inputs []string) ([][]flo
 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		providerMessage, _ := io.ReadAll(io.LimitReader(response.Body, maxErrorBodyBytes))
-		return nil, fmt.Errorf("OpenAI returned %s: %s", response.Status, strings.TrimSpace(string(providerMessage)))
+		return nil, &ProviderError{
+			StatusCode: response.StatusCode,
+			Status:     response.Status,
+			Body:       strings.TrimSpace(string(providerMessage)),
+		}
 	}
 
 	var result embeddingsResponse

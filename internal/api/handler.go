@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ const (
 var errDocumentNotFound = errors.New("document not found")
 
 type documentStore interface {
-	createDocument(ctx context.Context, content string, chunks []string) (string, error)
+	createDocument(ctx context.Context, content string, chunks []string) (string, string, error)
 	getDocument(ctx context.Context, id string) (document, error)
 	searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error)
 }
@@ -36,11 +37,17 @@ type answerGenerator interface {
 	GenerateAnswer(ctx context.Context, query string, passages []generation.Passage) (string, error)
 }
 
+type jobPublisher interface {
+	Publish(ctx context.Context, jobID string) error
+}
+
 type handler struct {
 	store     documentStore
 	embedder  embeddingGenerator
 	generator answerGenerator
+	publisher jobPublisher
 	splitter  chunking.WordSplitter
+	logger    *log.Logger
 }
 
 type submitDocumentRequest struct {
@@ -64,13 +71,13 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewHandler(store documentStore, embedder embeddingGenerator, generator answerGenerator) http.Handler {
+func NewHandler(store documentStore, embedder embeddingGenerator, generator answerGenerator, publisher jobPublisher) http.Handler {
 	splitter, err := chunking.NewWordSplitter(defaultChunkMaxWords, defaultChunkOverlapWords)
 	if err != nil {
 		panic(err)
 	}
 
-	h := &handler{store: store, embedder: embedder, generator: generator, splitter: splitter}
+	h := &handler{store: store, embedder: embedder, generator: generator, publisher: publisher, splitter: splitter, logger: log.Default()}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.health)
@@ -113,13 +120,25 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 
 	chunks := h.splitter.Split(request.Content)
 
-	id, err := h.store.createDocument(r.Context(), request.Content, chunks)
+	id, jobID, err := h.store.createDocument(r.Context(), request.Content, chunks)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not store document"})
 		return
 	}
 
+	h.notify(r.Context(), jobID)
+
 	writeJSON(w, http.StatusAccepted, submitDocumentResponse{ID: id, Status: statusQueued})
+}
+
+func (h *handler) notify(ctx context.Context, jobID string) {
+	if h.publisher == nil {
+		return
+	}
+
+	if err := h.publisher.Publish(ctx, jobID); err != nil && h.logger != nil {
+		h.logger.Printf("ingestion: publish job=%s: %v", jobID, err)
+	}
 }
 
 func (h *handler) getDocument(w http.ResponseWriter, r *http.Request) {

@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/thenujawijesuriya/recall/internal/embedding"
+	"github.com/thenujawijesuriya/recall/internal/queue"
 )
 
 type fakeIngestionStore struct {
@@ -263,5 +265,120 @@ func TestWorkerLogsFailureWithItsClassification(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Errorf("log missing %q; got:\n%s", want, output)
 		}
+	}
+}
+
+type fakeNotifier struct {
+	batches [][]queue.Message
+	err     error
+
+	received int
+	acked    []string
+}
+
+func (n *fakeNotifier) Receive(_ context.Context, _ int64, _ time.Duration) ([]queue.Message, error) {
+	if n.err != nil {
+		return nil, n.err
+	}
+	if n.received >= len(n.batches) {
+		return nil, nil
+	}
+	batch := n.batches[n.received]
+	n.received++
+	return batch, nil
+}
+
+func (n *fakeNotifier) Ack(_ context.Context, ids ...string) error {
+	n.acked = append(n.acked, ids...)
+	return nil
+}
+
+func TestWorkerProcessesAndAcknowledgesANotification(t *testing.T) {
+	store := &fakeIngestionStore{
+		job:     ingestionJob{ID: "job-1", DocumentID: "document-1", Attempts: 1},
+		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
+	}
+	notifier := &fakeNotifier{batches: [][]queue.Message{{{ID: "1-0", JobID: "job-1"}}}}
+	worker := newTestWorker(store, &fakeEmbedder{})
+	worker.notifier = notifier
+
+	if err := worker.waitForWork(context.Background()); err != nil {
+		t.Fatalf("waitForWork: %v", err)
+	}
+
+	if store.completeID != "job-1" {
+		t.Errorf("completed job = %q, want the notified job processed", store.completeID)
+	}
+	if len(notifier.acked) != 1 || notifier.acked[0] != "1-0" {
+		t.Errorf("acked = %v, want the message acknowledged after the work committed", notifier.acked)
+	}
+}
+
+func TestWorkerDoesNotAcknowledgeWhenTheJobFails(t *testing.T) {
+	store := &fakeIngestionStore{
+		job:     ingestionJob{ID: "job-1", DocumentID: "document-1", Attempts: 1},
+		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
+	}
+	notifier := &fakeNotifier{batches: [][]queue.Message{{{ID: "1-0", JobID: "job-1"}}}}
+	worker := newTestWorker(store, &fakeEmbedder{err: errors.New("provider unavailable")})
+	worker.notifier = notifier
+
+	if err := worker.waitForWork(context.Background()); err != nil {
+		t.Fatalf("waitForWork: %v", err)
+	}
+
+	if len(notifier.acked) != 0 {
+		t.Errorf("acked = %v, want no acknowledgement for work that did not succeed", notifier.acked)
+	}
+}
+
+func TestWorkerAcknowledgesANotificationWithNoWorkLeft(t *testing.T) {
+	store := &fakeIngestionStore{claimErr: errNoIngestionJob}
+	notifier := &fakeNotifier{batches: [][]queue.Message{{{ID: "1-0", JobID: "job-1"}}}}
+	worker := newTestWorker(store, &fakeEmbedder{})
+	worker.notifier = notifier
+
+	if err := worker.waitForWork(context.Background()); err != nil {
+		t.Fatalf("waitForWork: %v", err)
+	}
+
+	if len(notifier.acked) != 1 {
+		t.Errorf("acked = %v, want a duplicate notification acknowledged rather than redelivered forever", notifier.acked)
+	}
+}
+
+func TestWorkerTreatsARateLimitAsRetryable(t *testing.T) {
+	store := &fakeIngestionStore{
+		job:     ingestionJob{ID: "job-1", DocumentID: "document-1", Attempts: 1},
+		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
+	}
+	embedder := &fakeEmbedder{err: &embedding.ProviderError{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"}}
+
+	if _, err := newTestWorker(store, embedder).ProcessOne(context.Background()); err == nil {
+		t.Fatal("ProcessOne() error = nil, want the rate limit reported")
+	}
+	if len(store.failures) != 1 {
+		t.Fatalf("failures = %d, want 1", len(store.failures))
+	}
+	if store.failures[0].permanent {
+		t.Error("permanent = true, want false: a rate limit succeeds once the window resets")
+	}
+}
+
+func TestWorkerTreatsARejectedRequestAsPermanent(t *testing.T) {
+	store := &fakeIngestionStore{
+		job:     ingestionJob{ID: "job-1", DocumentID: "document-1", Attempts: 1},
+		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
+	}
+	embedder := &fakeEmbedder{err: &embedding.ProviderError{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"}}
+
+	if _, err := newTestWorker(store, embedder).ProcessOne(context.Background()); err == nil {
+		t.Fatal("ProcessOne() error = nil, want the rejection reported")
+	}
+	if len(store.failures) != 1 {
+		t.Fatalf("failures = %d, want 1", len(store.failures))
+	}
+	if !store.failures[0].permanent {
+		t.Error("permanent = false, want true: a rejected request fails identically on retry")
 	}
 }
