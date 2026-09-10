@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/thenujawijesuriya/recall/internal/api"
 	"github.com/thenujawijesuriya/recall/internal/embedding"
+	"github.com/thenujawijesuriya/recall/internal/generation"
 )
 
 func main() {
@@ -20,6 +21,10 @@ func main() {
 	embeddingClient, err := embedding.NewOpenAIClient(os.Getenv("OPENAI_API_KEY"))
 	if err != nil {
 		log.Fatalf("configure embedding client: %v", err)
+	}
+	answerClient, err := generation.NewOpenAIClient(os.Getenv("OPENAI_API_KEY"))
+	if err != nil {
+		log.Fatalf("configure answer client: %v", err)
 	}
 
 	connectionContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -42,7 +47,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              address,
-		Handler:           api.NewHandler(api.NewPostgresStore(pool), embeddingClient),
+		Handler:           api.NewHandler(api.NewPostgresStore(pool), embeddingClient, answerClient),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

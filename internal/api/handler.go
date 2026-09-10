@@ -12,6 +12,7 @@ import (
 
 	"github.com/thenujawijesuriya/recall/internal/chunking"
 	"github.com/thenujawijesuriya/recall/internal/embedding"
+	"github.com/thenujawijesuriya/recall/internal/generation"
 )
 
 const (
@@ -32,10 +33,15 @@ type embeddingGenerator interface {
 	Embed(ctx context.Context, inputs []string) ([][]float32, error)
 }
 
+type answerGenerator interface {
+	GenerateAnswer(ctx context.Context, query string, passages []generation.Passage) (string, error)
+}
+
 type handler struct {
-	store    documentStore
-	embedder embeddingGenerator
-	splitter chunking.WordSplitter
+	store     documentStore
+	embedder  embeddingGenerator
+	generator answerGenerator
+	splitter  chunking.WordSplitter
 }
 
 type submitDocumentRequest struct {
@@ -62,19 +68,20 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewHandler(store documentStore, embedder embeddingGenerator) http.Handler {
+func NewHandler(store documentStore, embedder embeddingGenerator, generator answerGenerator) http.Handler {
 	splitter, err := chunking.NewWordSplitter(defaultChunkMaxWords, defaultChunkOverlapWords)
 	if err != nil {
 		panic(err)
 	}
 
-	h := &handler{store: store, embedder: embedder, splitter: splitter}
+	h := &handler{store: store, embedder: embedder, generator: generator, splitter: splitter}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.HandleFunc("POST /documents", h.submitDocument)
 	mux.HandleFunc("GET /documents/{id}", h.getDocument)
 	mux.HandleFunc("POST /search", h.search)
+	mux.HandleFunc("POST /answer", h.answer)
 	return mux
 }
 

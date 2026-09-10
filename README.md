@@ -1,6 +1,6 @@
 # Recall
 
-Recall will become a retrieval-augmented generation service written in Go. It accepts plain-text documents over HTTP, divides them into overlapping chunks, generates OpenAI embeddings, and stores the source content and vectors in PostgreSQL.
+Recall is a retrieval-augmented generation service written in Go. It accepts plain-text documents over HTTP, divides them into overlapping chunks, generates OpenAI embeddings, and stores the source content and vectors in PostgreSQL. It answers questions by retrieving the most relevant passages and generating an answer that cites them, or by refusing when the evidence is too weak.
 
 ## Run Recall
 
@@ -53,7 +53,8 @@ The request body limit is 1 MiB, including the JSON wrapper.
 4. The PostgreSQL store saves the original document, chunks, vectors, model IDs, and embedding timestamps in one transaction.
 5. `GET /documents/{id}` validates the UUID before retrieving the matching row.
 6. `POST /search` validates the query and limit, embeds the query with the same model, and asks PostgreSQL for the nearest chunk vectors.
-7. The handler translates results into JSON and meaningful HTTP status codes.
+7. `POST /answer` retrieves the same evidence, refuses if it is too weak, and otherwise asks a language model for an answer that cites the passages it used.
+8. The handler translates results into JSON and meaningful HTTP status codes.
 
 The handler depends on a small storage interface. The running application uses PostgreSQL, while handler tests use an in-memory implementation.
 
@@ -146,6 +147,62 @@ RECALL_TEST_DATABASE_URL='postgres://recall:recall@localhost:5434/recall?sslmode
 ```
 
 They insert a fixture with hand-built vectors, assert the ranking and exclusions, and delete the fixture afterwards. Without the variable they report `SKIP`, which is not the same as passing.
+
+## Milestone 5 cited answers
+
+`POST /answer` retrieves evidence, then asks a language model to write an answer grounded in it. No migration is required.
+
+```sh
+curl -i http://localhost:8080/answer \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"How is data protected if a server fails?","limit":5}'
+```
+
+```json
+{
+  "answer": "Data is protected from partial updates through the use of transactions ... [1]",
+  "citations": [
+    {
+      "marker": 1,
+      "chunk_id": "20a050d5-b4d0-426b-84a0-37093a0e1e9d",
+      "document_id": "9e4a6ca8-5462-451c-a0d4-9858a67c5bc4",
+      "chunk_index": 0,
+      "content": "Information written to disk endures beyond ...",
+      "similarity": 0.3851
+    }
+  ],
+  "refused": false
+}
+```
+
+`limit` defaults to 5 and must be between 1 and 10. Validation matches `POST /search`, so an invalid request never reaches a provider.
+
+### Refusal
+
+Recall refuses rather than guessing, and a refusal is a success:
+
+```json
+{ "answer": "", "citations": [], "refused": true, "reason": "no sufficiently relevant evidence was found" }
+```
+
+There are two refusal paths, distinguishable by their reason:
+
+- **Before generation.** If retrieval returns nothing, or the best similarity is below `0.25`, the request is refused with no prompt built and no model call made. Nothing is spent.
+- **After generation.** If the model returns an empty answer or one containing no citations, the answer is refused rather than served as ungrounded prose.
+
+The `0.25` floor is a starting point measured against a small corpus, not a calibrated value. It should be re-measured against a labelled evaluation set.
+
+### Citations
+
+Every claim must cite the passage it came from using `[1]`, `[2]` markers. Each marker is checked against the passages actually supplied; a marker outside that range means the model cited something that does not exist, and returns `502 Bad Gateway`. Duplicate markers collapse to one citation and citations are returned in ascending order.
+
+A citation proves the source was available to the model. It does not prove the passage supports the claim — those are different problems, and only the first is mechanically checkable.
+
+### Grounding and untrusted documents
+
+Documents are user-submitted, so retrieved text is placed only in the user message, never in the system prompt, and the model is instructed to treat any instructions inside passages as quoted text to report on rather than obey. This limits prompt-injection exposure but does not eliminate it, which is why citation validation is enforced separately.
+
+Answer generation uses OpenAI `gpt-4o-mini` with `temperature: 0` and a bounded completion length, reusing `OPENAI_API_KEY`. A provider failure returns `502`; a database failure returns `500`.
 
 ## Documentation map
 

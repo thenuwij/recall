@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/thenujawijesuriya/recall/internal/embedding"
+	"github.com/thenujawijesuriya/recall/internal/generation"
 )
 
 type memoryStore struct {
@@ -89,8 +90,30 @@ func (s *memoryStore) searchChunks(_ context.Context, queryEmbedding []float32, 
 	return s.searchResults, nil
 }
 
+type generatorCall struct {
+	query    string
+	passages []generation.Passage
+}
+
+type fakeGenerator struct {
+	answer string
+	err    error
+	calls  []generatorCall
+}
+
+func (g *fakeGenerator) GenerateAnswer(_ context.Context, query string, passages []generation.Passage) (string, error) {
+	g.calls = append(g.calls, generatorCall{
+		query:    query,
+		passages: append([]generation.Passage(nil), passages...),
+	})
+	if g.err != nil {
+		return "", g.err
+	}
+	return g.answer, nil
+}
+
 func newTestHandler(store documentStore) http.Handler {
-	return NewHandler(store, &fakeEmbedder{})
+	return NewHandler(store, &fakeEmbedder{}, &fakeGenerator{})
 }
 
 func (s *memoryStore) getDocument(_ context.Context, id string) (document, error) {
@@ -227,7 +250,7 @@ func TestSubmitDocumentHandlesEmbeddingFailure(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"valid content"}`))
 	response := httptest.NewRecorder()
 
-	NewHandler(store, embedder).ServeHTTP(response, request)
+	NewHandler(store, embedder, &fakeGenerator{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadGateway)
