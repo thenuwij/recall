@@ -18,7 +18,7 @@ import (
 type memoryStore struct {
 	mu        sync.RWMutex
 	documents map[string]document
-	chunks    map[string][]documentChunk
+	chunks    map[string][]string
 	err       error
 
 	searchResults []searchResult
@@ -35,33 +35,30 @@ type searchCall struct {
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
 		documents: make(map[string]document),
-		chunks:    make(map[string][]documentChunk),
+		chunks:    make(map[string][]string),
 	}
 }
 
-func (s *memoryStore) createDocument(_ context.Context, content string, chunks []documentChunk) (string, error) {
+func (s *memoryStore) createDocument(_ context.Context, content string, chunks []string) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
 
 	const id = "test-document-id"
 	s.mu.Lock()
-	s.documents[id] = document{ID: id, Content: content}
-	storedChunks := make([]documentChunk, len(chunks))
-	for index, chunk := range chunks {
-		storedChunks[index] = chunk
-		storedChunks[index].Embedding = append([]float32(nil), chunk.Embedding...)
-	}
-	s.chunks[id] = storedChunks
+	s.documents[id] = document{ID: id, Content: content, Status: statusQueued}
+	s.chunks[id] = append([]string(nil), chunks...)
 	s.mu.Unlock()
 	return id, nil
 }
 
 type fakeEmbedder struct {
-	err error
+	err   error
+	calls int
 }
 
 func (e *fakeEmbedder) Embed(_ context.Context, inputs []string) ([][]float32, error) {
+	e.calls++
 	if e.err != nil {
 		return nil, e.err
 	}
@@ -156,10 +153,13 @@ func TestSubmitDocumentCallsStore(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
+	if result.Status != statusQueued {
+		t.Errorf("status = %q, want %q", result.Status, statusQueued)
+	}
 
 	store.mu.RLock()
 	storedContent := store.documents[result.ID].Content
-	storedChunks := append([]documentChunk(nil), store.chunks[result.ID]...)
+	storedChunks := append([]string(nil), store.chunks[result.ID]...)
 	store.mu.RUnlock()
 	if storedContent != "stored temporarily" {
 		t.Fatalf("stored content = %q, want %q", storedContent, "stored temporarily")
@@ -167,14 +167,24 @@ func TestSubmitDocumentCallsStore(t *testing.T) {
 	if len(storedChunks) != 1 {
 		t.Fatalf("stored chunk count = %d, want 1", len(storedChunks))
 	}
-	if storedChunks[0].Content != "stored temporarily" {
-		t.Fatalf("stored chunk content = %q, want %q", storedChunks[0].Content, "stored temporarily")
+	if storedChunks[0] != "stored temporarily" {
+		t.Fatalf("stored chunk content = %q, want %q", storedChunks[0], "stored temporarily")
 	}
-	if len(storedChunks[0].Embedding) != embedding.Dimensions || storedChunks[0].Embedding[0] != 1 {
-		t.Fatal("stored chunk does not contain the generated embedding")
+}
+
+func TestSubmitDocumentDoesNotEmbedOnTheRequestPath(t *testing.T) {
+	store := newMemoryStore()
+	embedder := &fakeEmbedder{}
+	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"deferred work"}`))
+	response := httptest.NewRecorder()
+
+	NewHandler(store, embedder, &fakeGenerator{}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusAccepted)
 	}
-	if storedChunks[0].EmbeddingModel != embedding.Model {
-		t.Fatalf("stored embedding model = %q, want %q", storedChunks[0].EmbeddingModel, embedding.Model)
+	if embedder.calls != 0 {
+		t.Errorf("embedder calls = %d, want 0: embedding belongs to the worker", embedder.calls)
 	}
 }
 
@@ -188,7 +198,7 @@ func TestSubmitDocument(t *testing.T) {
 		{
 			name:       "valid document",
 			body:       `{"content":"Go handlers turn HTTP requests into responses."}`,
-			wantStatus: http.StatusCreated,
+			wantStatus: http.StatusAccepted,
 			wantBody:   `{"id":"`,
 		},
 		{
@@ -244,25 +254,6 @@ func TestSubmitDocumentHandlesStoreFailure(t *testing.T) {
 	}
 }
 
-func TestSubmitDocumentHandlesEmbeddingFailure(t *testing.T) {
-	store := newMemoryStore()
-	embedder := &fakeEmbedder{err: errors.New("provider unavailable")}
-	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"valid content"}`))
-	response := httptest.NewRecorder()
-
-	NewHandler(store, embedder, &fakeGenerator{}).ServeHTTP(response, request)
-
-	if response.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadGateway)
-	}
-	if got := response.Body.String(); got != "{\"error\":\"could not generate document embeddings\"}\n" {
-		t.Fatalf("body = %q", got)
-	}
-	if len(store.documents) != 0 {
-		t.Fatal("document was stored after embedding generation failed")
-	}
-}
-
 func TestGetDocument(t *testing.T) {
 	const id = "0922cc91-c327-45e6-b38b-de38e208ddc7"
 	createdAt := time.Date(2026, time.September, 7, 7, 19, 52, 0, time.UTC)
@@ -271,6 +262,7 @@ func TestGetDocument(t *testing.T) {
 		ID:        id,
 		Content:   "This document was stored through the Recall API.",
 		CreatedAt: createdAt,
+		Status:    statusReady,
 	}
 	request := httptest.NewRequest(http.MethodGet, "/documents/"+id, nil)
 	response := httptest.NewRecorder()
@@ -280,10 +272,60 @@ func TestGetDocument(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusOK, response.Body.String())
 	}
-	wantBody := "{\"id\":\"0922cc91-c327-45e6-b38b-de38e208ddc7\",\"content\":\"This document was stored through the Recall API.\",\"created_at\":\"2026-09-07T07:19:52Z\"}\n"
+	wantBody := "{\"id\":\"0922cc91-c327-45e6-b38b-de38e208ddc7\",\"content\":\"This document was stored through the Recall API.\",\"created_at\":\"2026-09-07T07:19:52Z\",\"status\":\"ready\"}\n"
 	if got := response.Body.String(); got != wantBody {
 		t.Fatalf("body = %q, want %q", got, wantBody)
 	}
+}
+
+func TestGetDocumentReportsIngestionFailureReason(t *testing.T) {
+	const id = "0922cc91-c327-45e6-b38b-de38e208ddc7"
+	store := newMemoryStore()
+	store.documents[id] = document{
+		ID:      id,
+		Content: "This document could not be embedded.",
+		Status:  statusFailed,
+		Reason:  "provider unavailable after 3 attempts",
+	}
+	request := httptest.NewRequest(http.MethodGet, "/documents/"+id, nil)
+	response := httptest.NewRecorder()
+
+	newTestHandler(store).ServeHTTP(response, request)
+
+	var result document
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Status != statusFailed {
+		t.Errorf("status = %q, want %q", result.Status, statusFailed)
+	}
+	if result.Reason != "provider unavailable after 3 attempts" {
+		t.Errorf("reason = %q, want the recorded failure reason", result.Reason)
+	}
+}
+
+func TestIngestionStatusMapsJobStates(t *testing.T) {
+	tests := []struct {
+		state *string
+		want  string
+	}{
+		{state: nil, want: statusUnknown},
+		{state: ptr(jobQueued), want: statusQueued},
+		{state: ptr(jobProcessing), want: statusProcessing},
+		{state: ptr(jobCompleted), want: statusReady},
+		{state: ptr(jobFailed), want: statusFailed},
+		{state: ptr("something else"), want: statusUnknown},
+	}
+
+	for _, tt := range tests {
+		if got := ingestionStatus(tt.state); got != tt.want {
+			t.Errorf("ingestionStatus(%v) = %q, want %q", tt.state, got, tt.want)
+		}
+	}
+}
+
+func ptr(value string) *string {
+	return &value
 }
 
 func TestGetDocumentErrors(t *testing.T) {

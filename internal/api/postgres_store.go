@@ -18,7 +18,7 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-func (s *PostgresStore) createDocument(ctx context.Context, content string, chunks []documentChunk) (string, error) {
+func (s *PostgresStore) createDocument(ctx context.Context, content string, chunks []string) (string, error) {
 	transaction, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", err
@@ -39,21 +39,21 @@ func (s *PostgresStore) createDocument(ctx context.Context, content string, chun
 	}
 
 	const insertChunkQuery = `
-		INSERT INTO document_chunks (document_id, chunk_index, content, embedding, embedding_model, embedded_at)
-		VALUES ($1, $2, $3, $4::vector, $5, now())
+		INSERT INTO document_chunks (document_id, chunk_index, content)
+		VALUES ($1, $2, $3)
 	`
 	for index, chunk := range chunks {
-		if _, err := transaction.Exec(
-			ctx,
-			insertChunkQuery,
-			id,
-			index,
-			chunk.Content,
-			formatVector(chunk.Embedding),
-			chunk.EmbeddingModel,
-		); err != nil {
+		if _, err := transaction.Exec(ctx, insertChunkQuery, id, index, chunk); err != nil {
 			return "", err
 		}
+	}
+
+	const insertJobQuery = `
+		INSERT INTO ingestion_jobs (document_id)
+		VALUES ($1)
+	`
+	if _, err := transaction.Exec(ctx, insertJobQuery, id); err != nil {
+		return "", err
 	}
 
 	if err := transaction.Commit(ctx); err != nil {
@@ -78,22 +78,31 @@ func formatVector(values []float32) string {
 
 func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, error) {
 	const query = `
-		SELECT id::text, content, created_at
-		FROM documents
-		WHERE id = $1
+		SELECT d.id::text, d.content, d.created_at, j.state, j.last_error
+		FROM documents d
+		LEFT JOIN ingestion_jobs j ON j.document_id = d.id
+		WHERE d.id = $1
 	`
 
 	var result document
+	var state, lastError *string
 	err := s.pool.QueryRow(ctx, query, id).Scan(
 		&result.ID,
 		&result.Content,
 		&result.CreatedAt,
+		&state,
+		&lastError,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return document{}, errDocumentNotFound
 	}
 	if err != nil {
 		return document{}, err
+	}
+
+	result.Status = ingestionStatus(state)
+	if result.Status == statusFailed && lastError != nil {
+		result.Reason = *lastError
 	}
 
 	return result, nil

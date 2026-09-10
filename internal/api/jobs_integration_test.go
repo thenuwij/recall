@@ -12,9 +12,6 @@ import (
 
 const jobFixtureDocumentID = "00000000-0000-0000-0000-0000000000fd"
 
-// insertJobFixture creates one document with two unembedded chunks and a queued
-// ingestion job, and removes them afterwards. The document cascade deletes both
-// the chunks and the job.
 func insertJobFixture(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -96,7 +93,6 @@ func TestPostgresClaimIngestionJobSkipsAnUnexpiredLease(t *testing.T) {
 		t.Fatalf("first claim: %v", err)
 	}
 
-	// A second worker must not be handed a job whose lease is still held.
 	if _, err := store.claimIngestionJob(ctx, time.Minute); !errors.Is(err, errNoIngestionJob) {
 		t.Fatalf("second claim error = %v, want errNoIngestionJob", err)
 	}
@@ -108,8 +104,6 @@ func TestPostgresClaimIngestionJobReclaimsAnExpiredLease(t *testing.T) {
 	store := NewPostgresStore(pool)
 	ctx := context.Background()
 
-	// Claim with a lease that has already expired, standing in for a worker
-	// that stalled or died while holding the job.
 	if _, err := store.claimIngestionJob(ctx, -time.Minute); err != nil {
 		t.Fatalf("first claim: %v", err)
 	}
@@ -137,7 +131,6 @@ func TestPostgresChunksAwaitingEmbeddingSkipsEmbeddedChunks(t *testing.T) {
 		t.Fatalf("pending = %d, want 2", len(pending))
 	}
 
-	// Embed only the first chunk, as an interrupted attempt would have.
 	if err := store.completeIngestionJob(ctx, jobIDFor(t, pool), []embeddedChunk{
 		{ID: pending[0].ID, Embedding: testVector(1, 0)},
 	}, embedding.Model); err != nil {
@@ -167,8 +160,6 @@ func TestPostgresCompleteIngestionJobIsAtomic(t *testing.T) {
 		t.Fatalf("chunksAwaitingEmbedding: %v", err)
 	}
 
-	// The second vector has the wrong dimension, which pgvector rejects. The
-	// first chunk's update and the job's completion must roll back with it.
 	err = store.completeIngestionJob(ctx, jobIDFor(t, pool), []embeddedChunk{
 		{ID: pending[0].ID, Embedding: testVector(1, 0)},
 		{ID: pending[1].ID, Embedding: []float32{1, 2, 3}},
@@ -197,7 +188,6 @@ func TestPostgresFailIngestionJobRequeuesThenGivesUp(t *testing.T) {
 	store := NewPostgresStore(pool)
 	ctx := context.Background()
 
-	// A retryable failure below the attempt cap returns the job to the queue.
 	job := ingestionJob{ID: jobIDFor(t, pool), Attempts: 1}
 	if err := store.failIngestionJob(ctx, job, "provider unavailable", false, 0); err != nil {
 		t.Fatalf("failIngestionJob: %v", err)
@@ -206,7 +196,6 @@ func TestPostgresFailIngestionJobRequeuesThenGivesUp(t *testing.T) {
 		t.Errorf("state = %q, want %q after a retryable failure", state, jobQueued)
 	}
 
-	// The same failure at the attempt cap is terminal.
 	job.Attempts = maxIngestionAttempts
 	if err := store.failIngestionJob(ctx, job, "provider unavailable", false, 0); err != nil {
 		t.Fatalf("failIngestionJob at cap: %v", err)
@@ -221,8 +210,6 @@ func TestPostgresFailIngestionJobTreatsPermanentFailureAsTerminal(t *testing.T) 
 	insertJobFixture(t, pool)
 	store := NewPostgresStore(pool)
 
-	// A permanent failure is terminal on the first attempt: retrying it would
-	// repeat identical work to fail identically.
 	job := ingestionJob{ID: jobIDFor(t, pool), Attempts: 1}
 	if err := store.failIngestionJob(context.Background(), job, "malformed request", true, 0); err != nil {
 		t.Fatalf("failIngestionJob: %v", err)

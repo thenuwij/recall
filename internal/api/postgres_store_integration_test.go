@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/thenujawijesuriya/recall/internal/embedding"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
@@ -193,18 +192,7 @@ func TestPostgresCreateDocumentRollsBackOnChunkFailure(t *testing.T) {
 		}
 	})
 
-	chunks := []documentChunk{
-		{
-			Content:        rollbackChunkContent,
-			Embedding:      testVector(1, 0),
-			EmbeddingModel: embedding.Model,
-		},
-		{
-			Content:        "",
-			Embedding:      testVector(1, 0),
-			EmbeddingModel: embedding.Model,
-		},
-	}
+	chunks := []string{rollbackChunkContent, ""}
 
 	if _, err := store.createDocument(ctx, rollbackDocumentContent, chunks); err == nil {
 		t.Fatal("createDocument() error = nil, want an error for a blank chunk")

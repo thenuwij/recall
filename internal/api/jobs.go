@@ -8,8 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Ingestion job states. PostgreSQL enforces this set with a CHECK constraint;
-// these constants exist so Go never spells one of them differently.
 const (
 	jobQueued     = "queued"
 	jobProcessing = "processing"
@@ -17,36 +15,53 @@ const (
 	jobFailed     = "failed"
 )
 
-// maxIngestionAttempts bounds retries of a retryable failure. Three attempts
-// means the original try plus two retries.
 const maxIngestionAttempts = 3
+
+const (
+	statusQueued     = "queued"
+	statusProcessing = "processing"
+	statusReady      = "ready"
+	statusFailed     = "failed"
+	statusUnknown    = "unknown"
+)
+
+func ingestionStatus(state *string) string {
+	if state == nil {
+		return statusUnknown
+	}
+
+	switch *state {
+	case jobQueued:
+		return statusQueued
+	case jobProcessing:
+		return statusProcessing
+	case jobCompleted:
+		return statusReady
+	case jobFailed:
+		return statusFailed
+	}
+
+	return statusUnknown
+}
 
 var errNoIngestionJob = errors.New("no ingestion job available")
 
-// ingestionJob is one document's outstanding embedding work.
 type ingestionJob struct {
 	ID         string
 	DocumentID string
 	Attempts   int
 }
 
-// pendingChunk is a stored chunk that has no embedding yet.
 type pendingChunk struct {
 	ID      string
 	Content string
 }
 
-// embeddedChunk carries a vector back to the chunk it belongs to.
 type embeddedChunk struct {
 	ID        string
 	Embedding []float32
 }
 
-// claimIngestionJob atomically takes the oldest claimable job and leases it for
-// the given duration. A job is claimable when it is queued and its claimed_until
-// has passed, or when it is processing and its lease expired because the worker
-// holding it stalled or died. SKIP LOCKED lets several workers claim different
-// jobs concurrently without blocking each other.
 func (s *PostgresStore) claimIngestionJob(ctx context.Context, lease time.Duration) (ingestionJob, error) {
 	const claimQuery = `
 		UPDATE ingestion_jobs
@@ -79,9 +94,6 @@ func (s *PostgresStore) claimIngestionJob(ctx context.Context, lease time.Durati
 	return job, nil
 }
 
-// chunksAwaitingEmbedding returns the document's chunks that still have no
-// vector. A retry therefore resumes rather than restarting, because chunks
-// embedded by an earlier attempt are already excluded.
 func (s *PostgresStore) chunksAwaitingEmbedding(ctx context.Context, documentID string) ([]pendingChunk, error) {
 	const pendingQuery = `
 		SELECT id::text, content
@@ -112,8 +124,6 @@ func (s *PostgresStore) chunksAwaitingEmbedding(ctx context.Context, documentID 
 	return chunks, nil
 }
 
-// completeIngestionJob writes every vector and marks the job completed in one
-// transaction, so a completed job can never claim work that is not durable.
 func (s *PostgresStore) completeIngestionJob(ctx context.Context, jobID string, embedded []embeddedChunk, model string) error {
 	transaction, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -151,10 +161,6 @@ func (s *PostgresStore) completeIngestionJob(ctx context.Context, jobID string, 
 	return transaction.Commit(ctx)
 }
 
-// failIngestionJob records why an attempt failed. A permanent failure, or one
-// that has exhausted its attempts, becomes terminal and is left for inspection.
-// Anything else returns to the queue, held back by claimed_until so the retry
-// backs off instead of hammering a provider that just rejected it.
 func (s *PostgresStore) failIngestionJob(ctx context.Context, job ingestionJob, reason string, permanent bool, backoff time.Duration) error {
 	terminal := permanent || job.Attempts >= maxIngestionAttempts
 

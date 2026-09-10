@@ -11,7 +11,6 @@ import (
 	"uuid"
 
 	"github.com/thenujawijesuriya/recall/internal/chunking"
-	"github.com/thenujawijesuriya/recall/internal/embedding"
 	"github.com/thenujawijesuriya/recall/internal/generation"
 )
 
@@ -24,7 +23,7 @@ const (
 var errDocumentNotFound = errors.New("document not found")
 
 type documentStore interface {
-	createDocument(ctx context.Context, content string, chunks []documentChunk) (string, error)
+	createDocument(ctx context.Context, content string, chunks []string) (string, error)
 	getDocument(ctx context.Context, id string) (document, error)
 	searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error)
 }
@@ -49,19 +48,16 @@ type submitDocumentRequest struct {
 }
 
 type submitDocumentResponse struct {
-	ID string `json:"id"`
+	ID     string `json:"id"`
+	Status string `json:"status"`
 }
 
 type document struct {
 	ID        string    `json:"id"`
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
-}
-
-type documentChunk struct {
-	Content        string
-	Embedding      []float32
-	EmbeddingModel string
+	Status    string    `json:"status"`
+	Reason    string    `json:"reason,omitempty"`
 }
 
 type errorResponse struct {
@@ -116,32 +112,14 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chunks := h.splitter.Split(request.Content)
-	embeddings, err := h.embedder.Embed(r.Context(), chunks)
-	if err != nil || len(embeddings) != len(chunks) {
-		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not generate document embeddings"})
-		return
-	}
 
-	storedChunks := make([]documentChunk, len(chunks))
-	for index := range chunks {
-		if len(embeddings[index]) != embedding.Dimensions {
-			writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not generate document embeddings"})
-			return
-		}
-		storedChunks[index] = documentChunk{
-			Content:        chunks[index],
-			Embedding:      embeddings[index],
-			EmbeddingModel: embedding.Model,
-		}
-	}
-
-	id, err := h.store.createDocument(r.Context(), request.Content, storedChunks)
+	id, err := h.store.createDocument(r.Context(), request.Content, chunks)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not store document"})
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, submitDocumentResponse{ID: id})
+	writeJSON(w, http.StatusAccepted, submitDocumentResponse{ID: id, Status: statusQueued})
 }
 
 func (h *handler) getDocument(w http.ResponseWriter, r *http.Request) {
