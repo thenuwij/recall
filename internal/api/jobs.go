@@ -15,6 +15,11 @@ const (
 	jobFailed     = "failed"
 )
 
+const (
+	jobKindEmbed = "embed"
+	jobKindCards = "generate_cards"
+)
+
 const maxIngestionAttempts = 3
 
 const (
@@ -23,6 +28,7 @@ const (
 	statusReady      = "ready"
 	statusFailed     = "failed"
 	statusUnknown    = "unknown"
+	statusNotStarted = "not_started"
 )
 
 func ingestionStatus(state *string) string {
@@ -44,11 +50,20 @@ func ingestionStatus(state *string) string {
 	return statusUnknown
 }
 
+func cardsStatus(state *string) string {
+	if state == nil {
+		return statusNotStarted
+	}
+
+	return ingestionStatus(state)
+}
+
 var errNoIngestionJob = errors.New("no ingestion job available")
 
 type ingestionJob struct {
 	ID         string
 	DocumentID string
+	Kind       string
 	Attempts   int
 }
 
@@ -78,12 +93,12 @@ func (s *PostgresStore) claimIngestionJob(ctx context.Context, lease time.Durati
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id::text, document_id::text, attempts
+		RETURNING id::text, document_id::text, kind, attempts
 	`
 
 	var job ingestionJob
 	err := s.pool.QueryRow(ctx, claimQuery, jobProcessing, lease.Seconds(), jobQueued).
-		Scan(&job.ID, &job.DocumentID, &job.Attempts)
+		Scan(&job.ID, &job.DocumentID, &job.Kind, &job.Attempts)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ingestionJob{}, errNoIngestionJob
@@ -155,6 +170,18 @@ func (s *PostgresStore) completeIngestionJob(ctx context.Context, jobID string, 
 		WHERE id = $1
 	`
 	if _, err := transaction.Exec(ctx, completeQuery, jobID, jobCompleted); err != nil {
+		return err
+	}
+
+	const chainCardsQuery = `
+		INSERT INTO ingestion_jobs (document_id, kind)
+		SELECT document_id, $2
+		FROM ingestion_jobs
+		WHERE id = $1
+		    AND kind = $3
+		ON CONFLICT (document_id, kind) DO NOTHING
+	`
+	if _, err := transaction.Exec(ctx, chainCardsQuery, jobID, jobKindCards, jobKindEmbed); err != nil {
 		return err
 	}
 

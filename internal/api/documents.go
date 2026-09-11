@@ -18,11 +18,12 @@ var (
 )
 
 type documentSummary struct {
-	ID         string    `json:"id"`
-	Title      string    `json:"title,omitempty"`
-	SourceType string    `json:"source_type"`
-	Status     string    `json:"status"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	Title       string    `json:"title,omitempty"`
+	SourceType  string    `json:"source_type"`
+	Status      string    `json:"status"`
+	CardsStatus string    `json:"cards_status"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type documentListResponse struct {

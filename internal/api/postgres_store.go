@@ -85,15 +85,16 @@ func formatVector(values []float32) string {
 
 func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, error) {
 	const query = `
-		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.content, d.created_at, j.state, j.last_error
+		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.content, d.created_at, e.state, e.last_error, c.state
 		FROM documents d
-		LEFT JOIN ingestion_jobs j ON j.document_id = d.id
+		LEFT JOIN ingestion_jobs e ON e.document_id = d.id AND e.kind = $2
+		LEFT JOIN ingestion_jobs c ON c.document_id = d.id AND c.kind = $3
 		WHERE d.id = $1
 	`
 
 	var result document
-	var state, lastError *string
-	err := s.pool.QueryRow(ctx, query, id).Scan(
+	var state, lastError, cardState *string
+	err := s.pool.QueryRow(ctx, query, id, jobKindEmbed, jobKindCards).Scan(
 		&result.ID,
 		&result.Title,
 		&result.SourceType,
@@ -101,6 +102,7 @@ func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, e
 		&result.CreatedAt,
 		&state,
 		&lastError,
+		&cardState,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return document{}, errDocumentNotFound
@@ -113,6 +115,7 @@ func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, e
 	if result.Status == statusFailed && lastError != nil {
 		result.Reason = *lastError
 	}
+	result.CardsStatus = cardsStatus(cardState)
 
 	return result, nil
 }
@@ -166,13 +169,14 @@ func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float
 
 func (s *PostgresStore) listDocuments(ctx context.Context) ([]documentSummary, error) {
 	const query = `
-		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.created_at, j.state
+		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.created_at, e.state, c.state
 		FROM documents d
-		LEFT JOIN ingestion_jobs j ON j.document_id = d.id
+		LEFT JOIN ingestion_jobs e ON e.document_id = d.id AND e.kind = $1
+		LEFT JOIN ingestion_jobs c ON c.document_id = d.id AND c.kind = $2
 		ORDER BY d.created_at DESC, d.id
 	`
 
-	rows, err := s.pool.Query(ctx, query)
+	rows, err := s.pool.Query(ctx, query, jobKindEmbed, jobKindCards)
 	if err != nil {
 		return nil, err
 	}
@@ -181,11 +185,12 @@ func (s *PostgresStore) listDocuments(ctx context.Context) ([]documentSummary, e
 	var documents []documentSummary
 	for rows.Next() {
 		var summary documentSummary
-		var state *string
-		if err := rows.Scan(&summary.ID, &summary.Title, &summary.SourceType, &summary.CreatedAt, &state); err != nil {
+		var state, cardState *string
+		if err := rows.Scan(&summary.ID, &summary.Title, &summary.SourceType, &summary.CreatedAt, &state, &cardState); err != nil {
 			return nil, err
 		}
 		summary.Status = ingestionStatus(state)
+		summary.CardsStatus = cardsStatus(cardState)
 		documents = append(documents, summary)
 	}
 	if err := rows.Err(); err != nil {

@@ -272,7 +272,7 @@ Chunks created before milestone 003 have null embeddings and no job. Giving them
 
 ```sh
 docker compose exec -T postgres psql -U recall -d recall -c \
-  "INSERT INTO ingestion_jobs (document_id) SELECT DISTINCT document_id FROM document_chunks WHERE embedding IS NULL ON CONFLICT (document_id) DO NOTHING;"
+  "INSERT INTO ingestion_jobs (document_id) SELECT DISTINCT document_id FROM document_chunks WHERE embedding IS NULL ON CONFLICT (document_id, kind) DO NOTHING;"
 ```
 
 ### Redis integration tests
@@ -325,3 +325,13 @@ curl -i http://localhost:8080/chunks/<chunk-id>/context
 ```
 
 The response splits the surrounding text into `before`, `passage`, and `after`, so a client can highlight the passage without offset arithmetic. Offsets are bytes in Go but UTF-16 units in JavaScript, and the two disagree at the first accented character. For a PDF the surrounding text is the passage's page; for a text document it is up to about 500 bytes either side, cut at word boundaries. Chunks stored before migration 005 have no location and return `409`.
+
+## Milestone 11 card generation
+
+Ingestion jobs gain a `kind`, so one document can have an embedding job and a card-generation job. Apply the migration after migration 005:
+
+```sh
+docker compose exec -T postgres psql -U recall -d recall < migrations/006_add_job_kind.sql
+```
+
+Existing jobs become `embed` jobs, and each document may have at most one job of each kind. When an embedding job completes, the same transaction queues a `generate_cards` job for the document, and the worker claims it on its next pass without a Redis notification. Documents report `status` from the embedding job and `cards_status` from the card job, which is `not_started` until embedding finishes.

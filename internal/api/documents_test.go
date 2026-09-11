@@ -24,11 +24,12 @@ func (s *memoryStore) listDocuments(_ context.Context) ([]documentSummary, error
 	var documents []documentSummary
 	for _, doc := range s.documents {
 		documents = append(documents, documentSummary{
-			ID:         doc.ID,
-			Title:      doc.Title,
-			SourceType: doc.SourceType,
-			Status:     doc.Status,
-			CreatedAt:  doc.CreatedAt,
+			ID:          doc.ID,
+			Title:       doc.Title,
+			SourceType:  doc.SourceType,
+			Status:      doc.Status,
+			CardsStatus: doc.CardsStatus,
+			CreatedAt:   doc.CreatedAt,
 		})
 	}
 	sort.Slice(documents, func(i, j int) bool {

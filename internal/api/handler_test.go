@@ -50,7 +50,7 @@ func (s *memoryStore) createDocument(_ context.Context, doc newDocument, chunks 
 
 	const id = "test-document-id"
 	s.mu.Lock()
-	s.documents[id] = document{ID: id, Title: doc.Title, SourceType: doc.SourceType, Content: doc.Content, Status: statusQueued}
+	s.documents[id] = document{ID: id, Title: doc.Title, SourceType: doc.SourceType, Content: doc.Content, Status: statusQueued, CardsStatus: statusNotStarted}
 	s.chunks[id] = append([]chunking.Chunk(nil), chunks...)
 	s.mu.Unlock()
 	return id, "test-job-id", nil
@@ -277,12 +277,13 @@ func TestGetDocument(t *testing.T) {
 	createdAt := time.Date(2026, time.September, 7, 7, 19, 52, 0, time.UTC)
 	store := newMemoryStore()
 	store.documents[id] = document{
-		ID:         id,
-		Title:      "Lecture 3",
-		SourceType: sourcePDF,
-		Content:    "This document was stored through the Recall API.",
-		CreatedAt:  createdAt,
-		Status:     statusReady,
+		ID:          id,
+		Title:       "Lecture 3",
+		SourceType:  sourcePDF,
+		Content:     "This document was stored through the Recall API.",
+		CreatedAt:   createdAt,
+		Status:      statusReady,
+		CardsStatus: statusQueued,
 	}
 	request := httptest.NewRequest(http.MethodGet, "/documents/"+id, nil)
 	response := httptest.NewRecorder()
@@ -292,7 +293,7 @@ func TestGetDocument(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusOK, response.Body.String())
 	}
-	wantBody := "{\"id\":\"0922cc91-c327-45e6-b38b-de38e208ddc7\",\"title\":\"Lecture 3\",\"source_type\":\"pdf\",\"content\":\"This document was stored through the Recall API.\",\"created_at\":\"2026-09-07T07:19:52Z\",\"status\":\"ready\"}\n"
+	wantBody := "{\"id\":\"0922cc91-c327-45e6-b38b-de38e208ddc7\",\"title\":\"Lecture 3\",\"source_type\":\"pdf\",\"content\":\"This document was stored through the Recall API.\",\"created_at\":\"2026-09-07T07:19:52Z\",\"status\":\"ready\",\"cards_status\":\"queued\"}\n"
 	if got := response.Body.String(); got != wantBody {
 		t.Fatalf("body = %q, want %q", got, wantBody)
 	}

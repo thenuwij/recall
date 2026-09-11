@@ -79,13 +79,14 @@ type newDocument struct {
 }
 
 type document struct {
-	ID         string    `json:"id"`
-	Title      string    `json:"title,omitempty"`
-	SourceType string    `json:"source_type"`
-	Content    string    `json:"content"`
-	CreatedAt  time.Time `json:"created_at"`
-	Status     string    `json:"status"`
-	Reason     string    `json:"reason,omitempty"`
+	ID          string    `json:"id"`
+	Title       string    `json:"title,omitempty"`
+	SourceType  string    `json:"source_type"`
+	Content     string    `json:"content"`
+	CreatedAt   time.Time `json:"created_at"`
+	Status      string    `json:"status"`
+	Reason      string    `json:"reason,omitempty"`
+	CardsStatus string    `json:"cards_status"`
 }
 
 type errorResponse struct {

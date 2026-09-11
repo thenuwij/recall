@@ -394,6 +394,56 @@ func TestPostgresListDocumentsIncludesStatusAndTitle(t *testing.T) {
 	t.Fatalf("created document %s not listed", id)
 }
 
+func TestPostgresDocumentStatusSeparatesEmbedAndCardJobs(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+
+	id := createTestDocument(t, store, pool, newDocument{Title: "Two jobs", SourceType: sourceText, Content: "document with two jobs"})
+
+	stored, err := store.getDocument(ctx, id)
+	if err != nil {
+		t.Fatalf("getDocument: %v", err)
+	}
+	if stored.Status != statusQueued || stored.CardsStatus != statusNotStarted {
+		t.Fatalf("status = %q, cards_status = %q, want %q and %q", stored.Status, stored.CardsStatus, statusQueued, statusNotStarted)
+	}
+
+	var jobID string
+	if err := pool.QueryRow(ctx, `SELECT id::text FROM ingestion_jobs WHERE document_id = $1`, id).Scan(&jobID); err != nil {
+		t.Fatalf("read job id: %v", err)
+	}
+	if err := store.completeIngestionJob(ctx, jobID, nil, ""); err != nil {
+		t.Fatalf("completeIngestionJob: %v", err)
+	}
+
+	stored, err = store.getDocument(ctx, id)
+	if err != nil {
+		t.Fatalf("getDocument after completion: %v", err)
+	}
+	if stored.Status != statusReady || stored.CardsStatus != statusQueued {
+		t.Fatalf("status = %q, cards_status = %q, want %q and %q", stored.Status, stored.CardsStatus, statusReady, statusQueued)
+	}
+
+	documents, err := store.listDocuments(ctx)
+	if err != nil {
+		t.Fatalf("listDocuments: %v", err)
+	}
+	listed := 0
+	for _, summary := range documents {
+		if summary.ID != id {
+			continue
+		}
+		listed++
+		if summary.Status != statusReady || summary.CardsStatus != statusQueued {
+			t.Errorf("summary = %+v, want status %q and cards_status %q", summary, statusReady, statusQueued)
+		}
+	}
+	if listed != 1 {
+		t.Fatalf("document listed %d times, want once", listed)
+	}
+}
+
 func TestPostgresDeleteDocumentCascades(t *testing.T) {
 	pool := testPool(t)
 	store := NewPostgresStore(pool)

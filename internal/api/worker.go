@@ -135,7 +135,15 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	}
 
 	started := time.Now()
-	w.logf("claimed job=%s document=%s attempt=%d", job.ID, job.DocumentID, job.Attempts)
+	w.logf("claimed job=%s kind=%s document=%s attempt=%d", job.ID, job.Kind, job.DocumentID, job.Attempts)
+
+	if job.Kind == jobKindCards {
+		if err := w.store.completeIngestionJob(ctx, job.ID, nil, ""); err != nil {
+			return true, w.fail(ctx, job, fmt.Sprintf("complete card job: %v", err), false)
+		}
+		w.logf("completed job=%s kind=%s document=%s", job.ID, job.Kind, job.DocumentID)
+		return true, nil
+	}
 
 	pending, err := w.store.chunksAwaitingEmbedding(ctx, job.DocumentID)
 	if err != nil {

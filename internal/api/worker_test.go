@@ -127,6 +127,31 @@ func TestWorkerCompletesAJobWithNothingLeftToEmbed(t *testing.T) {
 	}
 }
 
+func TestWorkerCompletesACardJobWithoutEmbedding(t *testing.T) {
+	store := &fakeIngestionStore{
+		job:     ingestionJob{ID: "job-2", DocumentID: "document-1", Kind: jobKindCards, Attempts: 1},
+		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
+	}
+	embedder := &fakeEmbedder{}
+
+	worked, err := newTestWorker(store, embedder).ProcessOne(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessOne: %v", err)
+	}
+	if !worked {
+		t.Fatal("worked = false, want true when a job was claimed")
+	}
+	if store.completeID != "job-2" {
+		t.Errorf("completed job = %q, want %q", store.completeID, "job-2")
+	}
+	if len(store.completed) != 0 {
+		t.Errorf("completed chunks = %d, want 0 for a card job", len(store.completed))
+	}
+	if embedder.calls != 0 {
+		t.Errorf("embedder calls = %d, want 0 for a card job", embedder.calls)
+	}
+}
+
 func TestWorkerTreatsProviderFailureAsRetryable(t *testing.T) {
 	store := &fakeIngestionStore{
 		job:     ingestionJob{ID: "job-1", DocumentID: "document-1", Attempts: 1},
@@ -225,7 +250,7 @@ func (e *oneVectorEmbedder) Embed(_ context.Context, _ []string) ([][]float32, e
 func TestWorkerLogsJobLifecycle(t *testing.T) {
 	var buffer bytes.Buffer
 	store := &fakeIngestionStore{
-		job:     ingestionJob{ID: "job-1", DocumentID: "document-1", Attempts: 1},
+		job:     ingestionJob{ID: "job-1", DocumentID: "document-1", Kind: jobKindEmbed, Attempts: 1},
 		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
 	}
 	worker := newTestWorker(store, &fakeEmbedder{})
@@ -237,7 +262,7 @@ func TestWorkerLogsJobLifecycle(t *testing.T) {
 
 	output := buffer.String()
 	for _, want := range []string{
-		"claimed job=job-1 document=document-1 attempt=1",
+		"claimed job=job-1 kind=embed document=document-1 attempt=1",
 		"embedding job=job-1 chunks=1",
 		"completed job=job-1 document=document-1 chunks=1",
 	} {

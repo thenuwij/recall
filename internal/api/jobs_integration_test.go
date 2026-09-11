@@ -52,8 +52,8 @@ func jobState(t *testing.T, pool *pgxpool.Pool, documentID string) (string, int)
 	var state string
 	var attempts int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT state, attempts FROM ingestion_jobs WHERE document_id = $1`,
-		documentID,
+		`SELECT state, attempts FROM ingestion_jobs WHERE document_id = $1 AND kind = $2`,
+		documentID, jobKindEmbed,
 	).Scan(&state, &attempts); err != nil {
 		t.Fatalf("read job state: %v", err)
 	}
@@ -75,6 +75,9 @@ func TestPostgresClaimIngestionJobLeasesAndCountsTheAttempt(t *testing.T) {
 	}
 	if job.Attempts != 1 {
 		t.Errorf("Attempts = %d, want 1: the attempt is counted when the job is claimed", job.Attempts)
+	}
+	if job.Kind != jobKindEmbed {
+		t.Errorf("Kind = %q, want %q", job.Kind, jobKindEmbed)
 	}
 
 	state, _ := jobState(t, pool, jobFixtureDocumentID)
@@ -225,11 +228,78 @@ func jobIDFor(t *testing.T, pool *pgxpool.Pool) string {
 
 	var id string
 	if err := pool.QueryRow(context.Background(),
-		`SELECT id::text FROM ingestion_jobs WHERE document_id = $1`,
-		jobFixtureDocumentID,
+		`SELECT id::text FROM ingestion_jobs WHERE document_id = $1 AND kind = $2`,
+		jobFixtureDocumentID, jobKindEmbed,
 	).Scan(&id); err != nil {
 		t.Fatalf("read job id: %v", err)
 	}
 
 	return id
+}
+
+func jobKinds(t *testing.T, pool *pgxpool.Pool, documentID string) map[string]string {
+	t.Helper()
+
+	rows, err := pool.Query(context.Background(),
+		`SELECT kind, state FROM ingestion_jobs WHERE document_id = $1`,
+		documentID,
+	)
+	if err != nil {
+		t.Fatalf("read jobs: %v", err)
+	}
+	defer rows.Close()
+
+	kinds := make(map[string]string)
+	for rows.Next() {
+		var kind, state string
+		if err := rows.Scan(&kind, &state); err != nil {
+			t.Fatalf("scan job: %v", err)
+		}
+		kinds[kind] = state
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read jobs: %v", err)
+	}
+
+	return kinds
+}
+
+func TestPostgresCompleteIngestionJobChainsOneCardJob(t *testing.T) {
+	pool := testPool(t)
+	insertJobFixture(t, pool)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+
+	embedJob, err := store.claimIngestionJob(ctx, time.Minute)
+	if err != nil {
+		t.Fatalf("claim embed job: %v", err)
+	}
+	if err := store.completeIngestionJob(ctx, embedJob.ID, nil, embedding.Model); err != nil {
+		t.Fatalf("complete embed job: %v", err)
+	}
+
+	kinds := jobKinds(t, pool, jobFixtureDocumentID)
+	if len(kinds) != 2 || kinds[jobKindEmbed] != jobCompleted || kinds[jobKindCards] != jobQueued {
+		t.Fatalf("jobs = %v, want a completed embed job and a queued card job", kinds)
+	}
+
+	if err := store.completeIngestionJob(ctx, embedJob.ID, nil, embedding.Model); err != nil {
+		t.Fatalf("complete embed job again: %v", err)
+	}
+
+	cardJob, err := store.claimIngestionJob(ctx, time.Minute)
+	if err != nil {
+		t.Fatalf("claim card job: %v", err)
+	}
+	if cardJob.Kind != jobKindCards || cardJob.DocumentID != jobFixtureDocumentID {
+		t.Fatalf("claimed %+v, want the card job for the fixture document", cardJob)
+	}
+	if err := store.completeIngestionJob(ctx, cardJob.ID, nil, ""); err != nil {
+		t.Fatalf("complete card job: %v", err)
+	}
+
+	kinds = jobKinds(t, pool, jobFixtureDocumentID)
+	if len(kinds) != 2 || kinds[jobKindEmbed] != jobCompleted || kinds[jobKindCards] != jobCompleted {
+		t.Fatalf("jobs = %v, want exactly one completed job of each kind", kinds)
+	}
 }
