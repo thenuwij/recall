@@ -119,8 +119,12 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chunks := h.splitter.Split(request.Content)
+	texts := make([]string, len(chunks))
+	for index, chunk := range chunks {
+		texts[index] = chunk.Text
+	}
 
-	id, jobID, err := h.store.createDocument(r.Context(), request.Content, chunks)
+	id, jobID, err := h.store.createDocument(r.Context(), request.Content, texts)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not store document"})
 		return
