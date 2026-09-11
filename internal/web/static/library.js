@@ -16,7 +16,9 @@ async function loadDocuments() {
     showMessage(listMessage, "", false);
     renderDocuments(documents);
 
-    const busy = documents.some((doc) => doc.status === "queued" || doc.status === "processing");
+    const busy = documents.some((doc) =>
+      [doc.status, doc.cards_status].some((status) => status === "queued" || status === "processing"),
+    );
     if (busy) {
       pollTimer = setTimeout(loadDocuments, 2000);
     }
@@ -47,14 +49,30 @@ function renderDocument(doc) {
   const status = el("td");
   status.append(el("span", `status ${doc.status}`, doc.status));
 
+  const cards = el("td");
+  cards.append(renderCards(doc));
+
   const actions = el("td");
   const remove = el("button", "danger", "Delete");
   remove.type = "button";
   remove.addEventListener("click", () => deleteDocument(doc, remove));
   actions.append(remove);
 
-  row.append(name, status, actions);
+  row.append(name, status, cards, actions);
   return row;
+}
+
+function renderCards(doc) {
+  switch (doc.cards_status) {
+    case "ready":
+      return el("span", "meta", `${doc.card_count} ${doc.card_count === 1 ? "card" : "cards"}`);
+    case "queued":
+    case "processing":
+      return el("span", "status processing", "writing cards");
+    case "failed":
+      return el("span", "status failed", "cards failed");
+  }
+  return el("span", "meta", "");
 }
 
 async function deleteDocument(doc, button) {
@@ -82,7 +100,7 @@ form.addEventListener("submit", async (event) => {
     const body = new FormData();
     body.append("file", fileInput.files[0]);
     const result = await api("/documents/upload", { method: "POST", body });
-    showMessage(uploadMessage, `Uploaded "${result.title || "Untitled document"}". It will be searchable once processing finishes.`, false);
+    showMessage(uploadMessage, `Uploaded "${result.title || "Untitled document"}". Its questions will appear in Review once processing finishes.`, false);
     form.reset();
     await loadDocuments();
   } catch (error) {

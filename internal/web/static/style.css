@@ -245,3 +245,49 @@ mark {
 .empty {
   color: var(--muted);
 }
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.question {
+  margin: 6px 0 16px;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+p.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#result {
+  margin-top: 16px;
+}
+
+.grade {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.grade.low {
+  color: var(--danger);
+}
+
+.grade.mid {
+  color: var(--warn);
+}
+
+.grade.high {
+  color: var(--ok);
+}

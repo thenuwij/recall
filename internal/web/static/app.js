@@ -38,12 +38,17 @@ export async function showContext(container, chunkID) {
 
   try {
     const context = await api(`/chunks/${chunkID}/context`);
-    const text = el("div", "text");
-    const mark = el("mark", "", context.passage);
-    text.append(document.createTextNode(context.before), mark, document.createTextNode(context.after));
-    container.replaceChildren(el("div", "source", sourceLabel(context.title, context.page)), text);
+    const mark = renderPassage(container, context);
     mark.scrollIntoView({ block: "center" });
   } catch (error) {
     container.replaceChildren(el("p", "message error", error.message));
   }
+}
+
+export function renderPassage(container, context) {
+  const text = el("div", "text");
+  const mark = el("mark", "", context.passage);
+  text.append(document.createTextNode(context.before), mark, document.createTextNode(context.after));
+  container.replaceChildren(el("div", "source", sourceLabel(context.title, context.page)), text);
+  return mark;
 }

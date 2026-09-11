@@ -12,7 +12,8 @@ func TestWebInterfaceIsServed(t *testing.T) {
 		contentType string
 		contains    string
 	}{
-		{path: "/", contentType: "text/html", contains: "<title>Review · Recall</title>"},
+		{path: "/", contentType: "text/html", contains: `src="/review.js"`},
+		{path: "/review.js", contentType: "text/javascript", contains: "/reviews/due"},
 		{path: "/library.html", contentType: "text/html", contains: `src="/library.js"`},
 		{path: "/ask.html", contentType: "text/html", contains: `src="/ask.js"`},
 		{path: "/app.js", contentType: "text/javascript", contains: "export async function api"},

@@ -16,10 +16,32 @@
 </nav>
 </header>
 <main>
+<div class="heading">
 <h1>Review</h1>
-<div class="panel">
-<p class="empty">Review arrives soon. Upload material in the <a href="/library.html">Library</a>, then ask questions about it on the <a href="/ask.html">Ask</a> page.</p>
+<span id="due-count" class="meta"></span>
 </div>
+<p id="review-message" class="message" hidden></p>
+<section id="empty" class="panel" hidden></section>
+<section id="card" class="panel" hidden>
+<div id="card-source" class="meta"></div>
+<p id="card-question" class="question"></p>
+<form id="answer-form">
+<textarea id="answer" placeholder="Answer from memory, in your own words" maxlength="2000" required></textarea>
+<p class="row"><button type="submit">Check answer</button><span class="meta">⌘/Ctrl + Enter</span></p>
+</form>
+</section>
+<section id="result" hidden>
+<div class="panel">
+<p id="result-grade" class="grade"></p>
+<p id="result-rationale"></p>
+<div class="meta">Expected answer</div>
+<p id="result-expected"></p>
+<p id="result-next" class="meta"></p>
+<p><button id="next-card" type="button">Next card</button></p>
+</div>
+<div id="result-source" class="context panel" hidden></div>
+</section>
 </main>
+<script type="module" src="/review.js"></script>
 </body>
 </html>
