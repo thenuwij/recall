@@ -1,6 +1,8 @@
 # Recall
 
-Recall is a retrieval-augmented generation service written in Go. It accepts plain-text documents over HTTP, divides them into overlapping chunks, generates OpenAI embeddings, and stores the source content and vectors in PostgreSQL. It answers questions by retrieving the most relevant passages and generating an answer that cites them, or by refusing when the evidence is too weak.
+Recall is a spaced retrieval-practice tool written in Go. Upload lecture slides or notes as PDF, text, or Markdown, and Recall writes questions from them, asks them back on an SM-2 forgetting-curve schedule, and grades your free-text answers against the passage each question came from. A wrong answer shows that passage, highlighted on its page.
+
+Underneath is a retrieval-augmented generation service: documents are divided into page-aware chunks, embedded with OpenAI, and stored with their vectors in PostgreSQL. The same engine answers questions about your documents with citations to title, page, and passage, or refuses when the evidence is too weak.
 
 ## Run Recall
 
@@ -25,7 +27,9 @@ Documents are accepted by the API but embedded by the worker, so without the wor
 
 Keep `OPENAI_API_KEY`, `DATABASE_URL`, `REDIS_URL`, and `PORT` in the ignored local `.env` file. Never commit the API key.
 
-The server listens on `http://localhost:8080`. Set `PORT` to use another port.
+The server listens on `http://localhost:8080`. Set `PORT` to use another port. Open it in a browser for the web interface: Review (the home page), Library, and Ask.
+
+Apply the migrations in `migrations/` in order, 001 to 007, before the first run; each milestone below shows its command.
 
 ```sh
 curl -i http://localhost:8080/healthz
@@ -62,7 +66,9 @@ The request body limit is 1 MiB, including the JSON wrapper.
 5. `GET /documents/{id}` validates the UUID before retrieving the matching row.
 6. `POST /search` validates the query and limit, embeds the query with the same model, and asks PostgreSQL for the nearest chunk vectors.
 7. `POST /answer` retrieves the same evidence, refuses if it is too weak, and otherwise asks a language model for an answer that cites the passages it used.
-8. The handler translates results into JSON and meaningful HTTP status codes.
+8. When an embedding job completes, the worker generates cards from the document's chunks and schedules each one as due immediately.
+9. `GET /reviews/due` lists due cards; `POST /reviews/{card_id}` grades an answer against the card's source passage, updates the SM-2 schedule, and records the review.
+10. The handler translates results into JSON and meaningful HTTP status codes.
 
 The handler depends on a small storage interface. The running application uses PostgreSQL, while handler tests use an in-memory implementation.
 
@@ -326,6 +332,22 @@ curl -i http://localhost:8080/chunks/<chunk-id>/context
 
 The response splits the surrounding text into `before`, `passage`, and `after`, so a client can highlight the passage without offset arithmetic. Offsets are bytes in Go but UTF-16 units in JavaScript, and the two disagree at the first accented character. For a PDF the surrounding text is the passage's page; for a text document it is up to about 500 bytes either side, cut at word boundaries. Chunks stored before migration 005 have no location and return `409`.
 
+## Milestone 9 web interface
+
+The web interface is plain HTML, CSS, and JavaScript modules embedded in the Go binary with `//go:embed`, so there is no separate frontend build and the API serves it from `/`. API routes are registered more specifically and always win over static files.
+
+- **Review** (`/`): one due question at a time, an answer box, then the grade, rationale, expected answer, the source passage highlighted on its page, and when the card returns. When nothing is due it shows when the next card is.
+- **Library** (`/library.html`): upload, a document list that refreshes while documents are processing or cards are being written, card counts, and delete.
+- **Ask** (`/ask.html`): a question box, an answer with clickable citation markers, and the cited passage shown in context.
+
+All text from documents, the model, and the learner is rendered with `textContent`, never as HTML.
+
+## Milestone 10 grading and scheduling
+
+`GradeAnswer` asks `gpt-4o-mini` for a JSON score from 0 to 5 and a rationale, comparing the learner's answer with the source passage and the card's expected answer. The learner's answer is delimited in the request and declared untrusted in the system prompt, but the real defence is in Go: a missing, fractional, out-of-range, or unparseable score is an error, never a default grade.
+
+`internal/scheduling` implements SM-2 as a pure function with no clock reads. A score below 3 resets the card to a one-day interval and counts a lapse. Otherwise the first success gives one day, the second six days, and each later one multiplies the interval by the ease factor. The ease factor moves after every review, never drops below 1.3, and intervals are capped at 365 days.
+
 ## Milestone 11 card generation
 
 Ingestion jobs gain a `kind`, so one document can have an embedding job and a card-generation job. Apply the migration after migration 005:
@@ -372,3 +394,21 @@ curl -i http://localhost:8080/reviews/<card-id> \
 ```
 
 The answer is graded from 0 to 5 against the passage the card was generated from; no search happens at grading time. The response carries the `score`, a `label` (0–1 Forgot, 2 Almost, 3 Hard, 4 Good, 5 Easy), the `rationale`, the `expected_answer`, the `source` passage in context, and `next_due_at` from SM-2. The review row and the schedule update commit together, and the update only applies if the schedule has not changed since the card was loaded, so a double-submitted answer returns `409` instead of advancing the card twice. If grading fails, the response is `502` and nothing is written.
+
+## v1 end to end
+
+With the API and worker running:
+
+1. Upload slides in the Library, or with `curl -F 'file=@Lecture 3.pdf' http://localhost:8080/documents/upload`. The document becomes `ready`, then its cards are written; the Library shows the count.
+2. Open Review. New cards are due immediately, at most 20 a day.
+3. Answer from memory. A poor answer scores below 3, shows the source passage, and returns tomorrow; a good answer returns in one day, then six, then about sixteen, stretching each time.
+
+To see a schedule play out without waiting, move every due time and review time back, then reload Review:
+
+```sh
+docker compose exec -T postgres psql -U recall -d recall \
+  -c "UPDATE card_schedule SET due_at = due_at - interval '21 days';" \
+  -c "UPDATE reviews SET reviewed_at = reviewed_at - interval '21 days';"
+```
+
+Only do this on development data. Moving review times back also moves cards out of the rolling 24-hour window used by the new-card limit, as three real weeks would.
