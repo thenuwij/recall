@@ -29,6 +29,7 @@ func (s *memoryStore) listDocuments(_ context.Context) ([]documentSummary, error
 			SourceType:  doc.SourceType,
 			Status:      doc.Status,
 			CardsStatus: doc.CardsStatus,
+			CardCount:   doc.CardCount,
 			CreatedAt:   doc.CreatedAt,
 		})
 	}

@@ -87,6 +87,7 @@ type document struct {
 	Status      string    `json:"status"`
 	Reason      string    `json:"reason,omitempty"`
 	CardsStatus string    `json:"cards_status"`
+	CardCount   int       `json:"card_count"`
 }
 
 type errorResponse struct {

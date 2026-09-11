@@ -85,7 +85,13 @@ func formatVector(values []float32) string {
 
 func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, error) {
 	const query = `
-		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.content, d.created_at, e.state, e.last_error, c.state
+		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.content, d.created_at, e.state, e.last_error, c.state,
+			(
+				SELECT count(*)
+				FROM cards
+				JOIN document_chunks ON document_chunks.id = cards.chunk_id
+				WHERE document_chunks.document_id = d.id
+			)
 		FROM documents d
 		LEFT JOIN ingestion_jobs e ON e.document_id = d.id AND e.kind = $2
 		LEFT JOIN ingestion_jobs c ON c.document_id = d.id AND c.kind = $3
@@ -103,6 +109,7 @@ func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, e
 		&state,
 		&lastError,
 		&cardState,
+		&result.CardCount,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return document{}, errDocumentNotFound
@@ -169,7 +176,13 @@ func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float
 
 func (s *PostgresStore) listDocuments(ctx context.Context) ([]documentSummary, error) {
 	const query = `
-		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.created_at, e.state, c.state
+		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.created_at, e.state, c.state,
+			(
+				SELECT count(*)
+				FROM cards
+				JOIN document_chunks ON document_chunks.id = cards.chunk_id
+				WHERE document_chunks.document_id = d.id
+			)
 		FROM documents d
 		LEFT JOIN ingestion_jobs e ON e.document_id = d.id AND e.kind = $1
 		LEFT JOIN ingestion_jobs c ON c.document_id = d.id AND c.kind = $2
@@ -186,7 +199,7 @@ func (s *PostgresStore) listDocuments(ctx context.Context) ([]documentSummary, e
 	for rows.Next() {
 		var summary documentSummary
 		var state, cardState *string
-		if err := rows.Scan(&summary.ID, &summary.Title, &summary.SourceType, &summary.CreatedAt, &state, &cardState); err != nil {
+		if err := rows.Scan(&summary.ID, &summary.Title, &summary.SourceType, &summary.CreatedAt, &state, &cardState, &summary.CardCount); err != nil {
 			return nil, err
 		}
 		summary.Status = ingestionStatus(state)

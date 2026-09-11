@@ -23,6 +23,7 @@ type documentSummary struct {
 	SourceType  string    `json:"source_type"`
 	Status      string    `json:"status"`
 	CardsStatus string    `json:"cards_status"`
+	CardCount   int       `json:"card_count"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 

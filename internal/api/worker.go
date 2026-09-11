@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/thenujawijesuriya/recall/internal/embedding"
+	"github.com/thenujawijesuriya/recall/internal/generation"
 	"github.com/thenujawijesuriya/recall/internal/queue"
 )
 
@@ -22,6 +23,8 @@ type ingestionStore interface {
 	chunksAwaitingEmbedding(ctx context.Context, documentID string) ([]pendingChunk, error)
 	completeIngestionJob(ctx context.Context, jobID string, embedded []embeddedChunk, model string) error
 	failIngestionJob(ctx context.Context, job ingestionJob, reason string, permanent bool, backoff time.Duration) error
+	documentChunks(ctx context.Context, documentID string) ([]pendingChunk, error)
+	completeCardJob(ctx context.Context, jobID string, cards []newCard) error
 }
 
 type jobNotifier interface {
@@ -30,22 +33,24 @@ type jobNotifier interface {
 }
 
 type Worker struct {
-	store    ingestionStore
-	embedder embeddingGenerator
-	notifier jobNotifier
-	lease    time.Duration
-	poll     time.Duration
-	logger   *log.Logger
+	store     ingestionStore
+	embedder  embeddingGenerator
+	generator cardGenerator
+	notifier  jobNotifier
+	lease     time.Duration
+	poll      time.Duration
+	logger    *log.Logger
 }
 
-func NewWorker(store *PostgresStore, embedder embeddingGenerator, notifier jobNotifier) *Worker {
+func NewWorker(store *PostgresStore, embedder embeddingGenerator, generator cardGenerator, notifier jobNotifier) *Worker {
 	return &Worker{
-		store:    store,
-		embedder: embedder,
-		notifier: notifier,
-		lease:    defaultJobLease,
-		poll:     defaultPollInterval,
-		logger:   log.Default(),
+		store:     store,
+		embedder:  embedder,
+		generator: generator,
+		notifier:  notifier,
+		lease:     defaultJobLease,
+		poll:      defaultPollInterval,
+		logger:    log.Default(),
 	}
 }
 
@@ -138,11 +143,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	w.logf("claimed job=%s kind=%s document=%s attempt=%d", job.ID, job.Kind, job.DocumentID, job.Attempts)
 
 	if job.Kind == jobKindCards {
-		if err := w.store.completeIngestionJob(ctx, job.ID, nil, ""); err != nil {
-			return true, w.fail(ctx, job, fmt.Sprintf("complete card job: %v", err), false)
-		}
-		w.logf("completed job=%s kind=%s document=%s", job.ID, job.Kind, job.DocumentID)
-		return true, nil
+		return true, w.processCards(ctx, job, started)
 	}
 
 	pending, err := w.store.chunksAwaitingEmbedding(ctx, job.DocumentID)
@@ -204,9 +205,14 @@ func (w *Worker) fail(ctx context.Context, job ingestionJob, reason string, perm
 }
 
 func permanentFailure(err error) bool {
-	var providerError *embedding.ProviderError
-	if errors.As(err, &providerError) {
-		return !providerError.Retryable()
+	var embeddingError *embedding.ProviderError
+	if errors.As(err, &embeddingError) {
+		return !embeddingError.Retryable()
+	}
+
+	var generationError *generation.ProviderError
+	if errors.As(err, &generationError) {
+		return !generationError.Retryable()
 	}
 
 	return false

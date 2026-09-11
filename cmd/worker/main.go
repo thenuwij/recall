@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/thenujawijesuriya/recall/internal/api"
 	"github.com/thenujawijesuriya/recall/internal/embedding"
+	"github.com/thenujawijesuriya/recall/internal/generation"
 	"github.com/thenujawijesuriya/recall/internal/queue"
 )
 
@@ -22,6 +23,10 @@ func main() {
 	embeddingClient, err := embedding.NewOpenAIClient(os.Getenv("OPENAI_API_KEY"))
 	if err != nil {
 		log.Fatalf("configure embedding client: %v", err)
+	}
+	generationClient, err := generation.NewOpenAIClient(os.Getenv("OPENAI_API_KEY"))
+	if err != nil {
+		log.Fatalf("configure generation client: %v", err)
 	}
 
 	connectionContext, cancelConnection := context.WithTimeout(context.Background(), 5*time.Second)
@@ -58,7 +63,7 @@ func main() {
 	defer stop()
 
 	log.Print("Recall ingestion worker started")
-	if err := api.NewWorker(api.NewPostgresStore(pool), embeddingClient, notifier).Run(ctx); err != nil && ctx.Err() == nil {
+	if err := api.NewWorker(api.NewPostgresStore(pool), embeddingClient, generationClient, notifier).Run(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("ingestion worker: %v", err)
 	}
 	log.Print("Recall ingestion worker stopped")

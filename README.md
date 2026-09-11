@@ -335,3 +335,20 @@ docker compose exec -T postgres psql -U recall -d recall < migrations/006_add_jo
 ```
 
 Existing jobs become `embed` jobs, and each document may have at most one job of each kind. When an embedding job completes, the same transaction queues a `generate_cards` job for the document, and the worker claims it on its next pass without a Redis notification. Documents report `status` from the embedding job and `cards_status` from the card job, which is `not_started` until embedding finishes.
+
+Cards, their review schedules, and the review log come next. Apply after migration 006:
+
+```sh
+docker compose exec -T postgres psql -U recall -d recall < migrations/007_create_cards.sql
+```
+
+The worker needs `OPENAI_API_KEY` for both embedding and card generation. A card job sends the document's chunks to `gpt-4o-mini` in batches of five and asks for at most two questions per chunk, each with an expected answer and the number of the chunk it came from. Go discards any card that names a chunk it was not given, has a blank question or answer, or exceeds two for its chunk. A chunk with nothing worth testing may produce no cards.
+
+Neighbouring chunks overlap, so the same fact can produce two nearly identical questions. Every question is embedded, and one within 0.92 cosine similarity of a question already kept is dropped. The cards, a schedule row for each (due immediately), and the job completion are written in one transaction, so a retried job never duplicates cards. Documents report `card_count` alongside `cards_status`.
+
+Documents embedded before migration 006 have no card job. Queue one for each:
+
+```sh
+docker compose exec -T postgres psql -U recall -d recall -c \
+  "INSERT INTO ingestion_jobs (document_id, kind) SELECT document_id, 'generate_cards' FROM ingestion_jobs WHERE kind = 'embed' AND state = 'completed' ON CONFLICT (document_id, kind) DO NOTHING;"
+```

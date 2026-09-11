@@ -20,10 +20,12 @@ type fakeIngestionStore struct {
 	pending     []pendingChunk
 	pendingErr  error
 	completeErr error
+	chunks      []pendingChunk
 
 	claims     int
 	completed  []embeddedChunk
 	completeID string
+	cards      []newCard
 	failures   []recordedFailure
 }
 
@@ -59,6 +61,19 @@ func (s *fakeIngestionStore) completeIngestionJob(_ context.Context, jobID strin
 
 func (s *fakeIngestionStore) failIngestionJob(_ context.Context, _ ingestionJob, reason string, permanent bool, backoff time.Duration) error {
 	s.failures = append(s.failures, recordedFailure{reason: reason, permanent: permanent, backoff: backoff})
+	return nil
+}
+
+func (s *fakeIngestionStore) documentChunks(_ context.Context, _ string) ([]pendingChunk, error) {
+	return s.chunks, nil
+}
+
+func (s *fakeIngestionStore) completeCardJob(_ context.Context, jobID string, cards []newCard) error {
+	if s.completeErr != nil {
+		return s.completeErr
+	}
+	s.completeID = jobID
+	s.cards = cards
 	return nil
 }
 
@@ -124,31 +139,6 @@ func TestWorkerCompletesAJobWithNothingLeftToEmbed(t *testing.T) {
 	}
 	if embedder.calls != 0 {
 		t.Errorf("embedder calls = %d, want 0", embedder.calls)
-	}
-}
-
-func TestWorkerCompletesACardJobWithoutEmbedding(t *testing.T) {
-	store := &fakeIngestionStore{
-		job:     ingestionJob{ID: "job-2", DocumentID: "document-1", Kind: jobKindCards, Attempts: 1},
-		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
-	}
-	embedder := &fakeEmbedder{}
-
-	worked, err := newTestWorker(store, embedder).ProcessOne(context.Background())
-	if err != nil {
-		t.Fatalf("ProcessOne: %v", err)
-	}
-	if !worked {
-		t.Fatal("worked = false, want true when a job was claimed")
-	}
-	if store.completeID != "job-2" {
-		t.Errorf("completed job = %q, want %q", store.completeID, "job-2")
-	}
-	if len(store.completed) != 0 {
-		t.Errorf("completed chunks = %d, want 0 for a card job", len(store.completed))
-	}
-	if embedder.calls != 0 {
-		t.Errorf("embedder calls = %d, want 0 for a card job", embedder.calls)
 	}
 }
 

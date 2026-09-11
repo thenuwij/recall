@@ -283,7 +283,8 @@ func TestGetDocument(t *testing.T) {
 		Content:     "This document was stored through the Recall API.",
 		CreatedAt:   createdAt,
 		Status:      statusReady,
-		CardsStatus: statusQueued,
+		CardsStatus: statusReady,
+		CardCount:   3,
 	}
 	request := httptest.NewRequest(http.MethodGet, "/documents/"+id, nil)
 	response := httptest.NewRecorder()
@@ -293,7 +294,7 @@ func TestGetDocument(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusOK, response.Body.String())
 	}
-	wantBody := "{\"id\":\"0922cc91-c327-45e6-b38b-de38e208ddc7\",\"title\":\"Lecture 3\",\"source_type\":\"pdf\",\"content\":\"This document was stored through the Recall API.\",\"created_at\":\"2026-09-07T07:19:52Z\",\"status\":\"ready\",\"cards_status\":\"queued\"}\n"
+	wantBody := "{\"id\":\"0922cc91-c327-45e6-b38b-de38e208ddc7\",\"title\":\"Lecture 3\",\"source_type\":\"pdf\",\"content\":\"This document was stored through the Recall API.\",\"created_at\":\"2026-09-07T07:19:52Z\",\"status\":\"ready\",\"cards_status\":\"ready\",\"card_count\":3}\n"
 	if got := response.Body.String(); got != wantBody {
 		t.Fatalf("body = %q, want %q", got, wantBody)
 	}
