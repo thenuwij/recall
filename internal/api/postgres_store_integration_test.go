@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -369,5 +370,92 @@ func TestPostgresDocumentChunksRejectEmptySpan(t *testing.T) {
 
 	if _, _, err := store.createDocument(ctx, doc, chunks); err == nil {
 		t.Fatal("createDocument() error = nil, want the span check to reject end_offset = start_offset")
+	}
+}
+
+func TestPostgresListDocumentsIncludesStatusAndTitle(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+
+	id := createTestDocument(t, store, pool, newDocument{Title: "Listed", SourceType: sourcePDF, Content: "listed document"})
+
+	documents, err := store.listDocuments(context.Background())
+	if err != nil {
+		t.Fatalf("listDocuments: %v", err)
+	}
+	for _, summary := range documents {
+		if summary.ID == id {
+			if summary.Title != "Listed" || summary.SourceType != sourcePDF || summary.Status != statusQueued {
+				t.Fatalf("summary = %+v", summary)
+			}
+			return
+		}
+	}
+	t.Fatalf("created document %s not listed", id)
+}
+
+func TestPostgresDeleteDocumentCascades(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+
+	id := createTestDocument(t, store, pool, newDocument{SourceType: sourceText, Content: "document to delete"})
+
+	if err := store.deleteDocument(ctx, id); err != nil {
+		t.Fatalf("deleteDocument: %v", err)
+	}
+
+	var chunks, jobs int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM document_chunks WHERE document_id = $1`, id).Scan(&chunks); err != nil {
+		t.Fatalf("count chunks: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ingestion_jobs WHERE document_id = $1`, id).Scan(&jobs); err != nil {
+		t.Fatalf("count jobs: %v", err)
+	}
+	if chunks != 0 || jobs != 0 {
+		t.Fatalf("after delete: chunks = %d, jobs = %d, want 0 and 0", chunks, jobs)
+	}
+
+	if err := store.deleteDocument(ctx, id); !errors.Is(err, errDocumentNotFound) {
+		t.Fatalf("second delete error = %v, want %v", err, errDocumentNotFound)
+	}
+}
+
+func TestPostgresChunkLocationAndSearchIncludeTitleAndPage(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+
+	id := createTestDocument(t, store, pool, newDocument{Title: "Lecture 3", SourceType: sourcePDF, Content: "first page\fsecond page"})
+
+	var chunkID string
+	if err := pool.QueryRow(ctx,
+		`UPDATE document_chunks SET embedding = $2::vector, embedding_model = 'test-location-model', embedded_at = now()
+		 WHERE document_id = $1 AND page_number = 2
+		 RETURNING id::text`,
+		id, formatVector(testVector(1, 0)),
+	).Scan(&chunkID); err != nil {
+		t.Fatalf("embed page two chunk: %v", err)
+	}
+
+	location, err := store.chunkLocation(ctx, chunkID)
+	if err != nil {
+		t.Fatalf("chunkLocation: %v", err)
+	}
+	if location.DocumentID != id || location.Title != "Lecture 3" || location.Page == nil || *location.Page != 2 ||
+		location.Start == nil || *location.Start != 11 || location.End == nil || *location.End != 22 {
+		t.Fatalf("location = %+v", location)
+	}
+
+	results, err := store.searchChunks(ctx, testVector(1, 0), "test-location-model", 5)
+	if err != nil {
+		t.Fatalf("searchChunks: %v", err)
+	}
+	if len(results) != 1 || results[0].Title != "Lecture 3" || results[0].Page == nil || *results[0].Page != 2 {
+		t.Fatalf("results = %+v, want one result titled Lecture 3 on page 2", results)
+	}
+
+	if _, err := store.chunkLocation(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, errChunkNotFound) {
+		t.Fatalf("unknown chunk error = %v, want %v", err, errChunkNotFound)
 	}
 }

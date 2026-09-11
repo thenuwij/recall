@@ -23,7 +23,9 @@ type searchRequest struct {
 type searchResult struct {
 	ChunkID    string  `json:"chunk_id"`
 	DocumentID string  `json:"document_id"`
+	Title      string  `json:"title,omitempty"`
 	ChunkIndex int     `json:"chunk_index"`
+	Page       *int    `json:"page,omitempty"`
 	Content    string  `json:"content"`
 	Similarity float64 `json:"similarity"`
 }

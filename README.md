@@ -310,3 +310,18 @@ curl -i http://localhost:8080/documents \
   -H 'Content-Type: application/json' \
   -d '{"title":"Week 1","content":"Go handlers turn HTTP requests into responses."}'
 ```
+
+List documents, newest first, or delete one along with its chunks and jobs:
+
+```sh
+curl -i http://localhost:8080/documents
+curl -i -X DELETE http://localhost:8080/documents/<document-id>
+```
+
+Citations from `POST /answer` and results from `POST /search` now carry the document `title` and, for PDFs, the `page`. To show a passage where it sits, fetch its context:
+
+```sh
+curl -i http://localhost:8080/chunks/<chunk-id>/context
+```
+
+The response splits the surrounding text into `before`, `passage`, and `after`, so a client can highlight the passage without offset arithmetic. Offsets are bytes in Go but UTF-16 units in JavaScript, and the two disagree at the first accented character. For a PDF the surrounding text is the passage's page; for a text document it is up to about 500 bytes either side, cut at word boundaries. Chunks stored before migration 005 have no location and return `409`.

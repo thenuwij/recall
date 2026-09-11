@@ -25,6 +25,8 @@ type memoryStore struct {
 	searchResults []searchResult
 	searchErr     error
 	searchCalls   []searchCall
+
+	locations map[string]chunkLocation
 }
 
 type searchCall struct {
@@ -37,6 +39,7 @@ func newMemoryStore() *memoryStore {
 	return &memoryStore{
 		documents: make(map[string]document),
 		chunks:    make(map[string][]chunking.Chunk),
+		locations: make(map[string]chunkLocation),
 	}
 }
 

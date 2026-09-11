@@ -30,7 +30,9 @@ type citation struct {
 	Marker     int     `json:"marker"`
 	ChunkID    string  `json:"chunk_id"`
 	DocumentID string  `json:"document_id"`
+	Title      string  `json:"title,omitempty"`
 	ChunkIndex int     `json:"chunk_index"`
+	Page       *int    `json:"page,omitempty"`
 	Content    string  `json:"content"`
 	Similarity float64 `json:"similarity"`
 }
@@ -131,7 +133,9 @@ func (h *handler) answer(w http.ResponseWriter, r *http.Request) {
 			Marker:     marker,
 			ChunkID:    result.ChunkID,
 			DocumentID: result.DocumentID,
+			Title:      result.Title,
 			ChunkIndex: result.ChunkIndex,
+			Page:       result.Page,
 			Content:    result.Content,
 			Similarity: result.Similarity,
 		})

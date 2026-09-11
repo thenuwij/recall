@@ -120,15 +120,18 @@ func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, e
 func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error) {
 	const query = `
 		SELECT
-			id::text,
-			document_id::text,
-			chunk_index,
-			content,
-			1 - (embedding <=> $1::vector) AS similarity
-		FROM document_chunks
-		WHERE embedding IS NOT NULL
-			AND embedding_model = $2
-		ORDER BY embedding <=> $1::vector, document_id, chunk_index
+			c.id::text,
+			c.document_id::text,
+			COALESCE(d.title, ''),
+			c.chunk_index,
+			c.page_number,
+			c.content,
+			1 - (c.embedding <=> $1::vector) AS similarity
+		FROM document_chunks c
+		JOIN documents d ON d.id = c.document_id
+		WHERE c.embedding IS NOT NULL
+			AND c.embedding_model = $2
+		ORDER BY c.embedding <=> $1::vector, c.document_id, c.chunk_index
 		LIMIT $3
 	`
 
@@ -144,7 +147,9 @@ func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float
 		if err := rows.Scan(
 			&result.ChunkID,
 			&result.DocumentID,
+			&result.Title,
 			&result.ChunkIndex,
+			&result.Page,
 			&result.Content,
 			&result.Similarity,
 		); err != nil {
@@ -157,4 +162,76 @@ func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float
 	}
 
 	return results, nil
+}
+
+func (s *PostgresStore) listDocuments(ctx context.Context) ([]documentSummary, error) {
+	const query = `
+		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.created_at, j.state
+		FROM documents d
+		LEFT JOIN ingestion_jobs j ON j.document_id = d.id
+		ORDER BY d.created_at DESC, d.id
+	`
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var documents []documentSummary
+	for rows.Next() {
+		var summary documentSummary
+		var state *string
+		if err := rows.Scan(&summary.ID, &summary.Title, &summary.SourceType, &summary.CreatedAt, &state); err != nil {
+			return nil, err
+		}
+		summary.Status = ingestionStatus(state)
+		documents = append(documents, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return documents, nil
+}
+
+func (s *PostgresStore) deleteDocument(ctx context.Context, id string) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM documents WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return errDocumentNotFound
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) chunkLocation(ctx context.Context, chunkID string) (chunkLocation, error) {
+	const query = `
+		SELECT c.document_id::text, COALESCE(d.title, ''), d.source_type, d.content,
+			c.page_number, c.start_offset, c.end_offset
+		FROM document_chunks c
+		JOIN documents d ON d.id = c.document_id
+		WHERE c.id = $1
+	`
+
+	var location chunkLocation
+	err := s.pool.QueryRow(ctx, query, chunkID).Scan(
+		&location.DocumentID,
+		&location.Title,
+		&location.SourceType,
+		&location.Content,
+		&location.Page,
+		&location.Start,
+		&location.End,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return chunkLocation{}, errChunkNotFound
+	}
+	if err != nil {
+		return chunkLocation{}, err
+	}
+
+	return location, nil
 }

@@ -27,6 +27,9 @@ var errDocumentNotFound = errors.New("document not found")
 type documentStore interface {
 	createDocument(ctx context.Context, doc newDocument, chunks []chunking.Chunk) (string, string, error)
 	getDocument(ctx context.Context, id string) (document, error)
+	listDocuments(ctx context.Context) ([]documentSummary, error)
+	deleteDocument(ctx context.Context, id string) error
+	chunkLocation(ctx context.Context, chunkID string) (chunkLocation, error)
 	searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error)
 }
 
@@ -100,7 +103,10 @@ func NewHandler(store documentStore, embedder embeddingGenerator, generator answ
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.HandleFunc("POST /documents", h.submitDocument)
 	mux.HandleFunc("POST /documents/upload", h.uploadDocument)
+	mux.HandleFunc("GET /documents", h.listDocuments)
 	mux.HandleFunc("GET /documents/{id}", h.getDocument)
+	mux.HandleFunc("DELETE /documents/{id}", h.deleteDocument)
+	mux.HandleFunc("GET /chunks/{id}/context", h.chunkContext)
 	mux.HandleFunc("POST /search", h.search)
 	mux.HandleFunc("POST /answer", h.answer)
 	return mux
