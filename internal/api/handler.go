@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 	"uuid"
 
 	"github.com/thenujawijesuriya/recall/internal/chunking"
@@ -46,16 +47,19 @@ type handler struct {
 	embedder  embeddingGenerator
 	generator answerGenerator
 	publisher jobPublisher
+	extractor textExtractor
 	splitter  chunking.WordSplitter
 	logger    *log.Logger
 }
 
 type submitDocumentRequest struct {
 	Content string `json:"content"`
+	Title   string `json:"title"`
 }
 
 type submitDocumentResponse struct {
 	ID     string `json:"id"`
+	Title  string `json:"title,omitempty"`
 	Status string `json:"status"`
 }
 
@@ -84,17 +88,18 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewHandler(store documentStore, embedder embeddingGenerator, generator answerGenerator, publisher jobPublisher) http.Handler {
+func NewHandler(store documentStore, embedder embeddingGenerator, generator answerGenerator, publisher jobPublisher, extractor textExtractor) http.Handler {
 	splitter, err := chunking.NewWordSplitter(defaultChunkMaxWords, defaultChunkOverlapWords)
 	if err != nil {
 		panic(err)
 	}
 
-	h := &handler{store: store, embedder: embedder, generator: generator, publisher: publisher, splitter: splitter, logger: log.Default()}
+	h := &handler{store: store, embedder: embedder, generator: generator, publisher: publisher, extractor: extractor, splitter: splitter, logger: log.Default()}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.HandleFunc("POST /documents", h.submitDocument)
+	mux.HandleFunc("POST /documents/upload", h.uploadDocument)
 	mux.HandleFunc("GET /documents/{id}", h.getDocument)
 	mux.HandleFunc("POST /search", h.search)
 	mux.HandleFunc("POST /answer", h.answer)
@@ -131,8 +136,14 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	title := strings.TrimSpace(request.Title)
+	if utf8.RuneCountInString(title) > maxTitleCharacters {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "title must not exceed 200 characters"})
+		return
+	}
+
 	chunks := h.splitter.Split(request.Content)
-	doc := newDocument{SourceType: sourceText, Content: request.Content}
+	doc := newDocument{Title: title, SourceType: sourceText, Content: request.Content}
 
 	id, jobID, err := h.store.createDocument(r.Context(), doc, chunks)
 	if err != nil {
@@ -142,7 +153,7 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 
 	h.notify(r.Context(), jobID)
 
-	writeJSON(w, http.StatusAccepted, submitDocumentResponse{ID: id, Status: statusQueued})
+	writeJSON(w, http.StatusAccepted, submitDocumentResponse{ID: id, Title: title, Status: statusQueued})
 }
 
 func (h *handler) notify(ctx context.Context, jobID string) {

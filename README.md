@@ -4,7 +4,7 @@ Recall is a retrieval-augmented generation service written in Go. It accepts pla
 
 ## Run Recall
 
-Requirements: Go 1.27 or later, PostgreSQL with pgvector, Redis, and an OpenAI API key.
+Requirements: Go 1.27 or later, PostgreSQL with pgvector, Redis, poppler's `pdftotext` (`brew install poppler`), and an OpenAI API key.
 
 ```sh
 cp .env.example .env
@@ -294,3 +294,19 @@ docker compose exec -T postgres psql -U recall -d recall < migrations/005_add_so
 ```
 
 Documents gain an optional `title` and a `source_type` of `text` or `pdf`. Each chunk records `start_offset` and `end_offset`, the byte range of its words in the original content, and PDF chunks record a `page_number`. A form feed in the content marks a page break, and no chunk crosses one. Rows created before migration 005 keep null offsets; re-ingest them rather than backfilling.
+
+Upload a PDF, text, or Markdown file as multipart form data. The title is the filename without its extension:
+
+```sh
+curl -i http://localhost:8080/documents/upload -F 'file=@Lecture 3.pdf'
+```
+
+PDF text is extracted with `pdftotext`, which separates pages with form feeds, so every chunk of a PDF records its page. The API refuses to start if `pdftotext` is not installed. Files are limited to 25 MiB. A scanned PDF with no text layer, or a password-protected PDF, is rejected with `422` and a reason; a file that is not really a PDF, or any other file type, is rejected with `415`.
+
+`POST /documents` also accepts an optional `title`:
+
+```sh
+curl -i http://localhost:8080/documents \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Week 1","content":"Go handlers turn HTTP requests into responses."}'
+```

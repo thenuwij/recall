@@ -121,7 +121,7 @@ func (g *fakeGenerator) GenerateAnswer(_ context.Context, query string, passages
 }
 
 func newTestHandler(store documentStore) http.Handler {
-	return NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, &fakePublisher{})
+	return NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, &fakePublisher{}, &fakeExtractor{})
 }
 
 func (s *memoryStore) getDocument(_ context.Context, id string) (document, error) {
@@ -193,7 +193,7 @@ func TestSubmitDocumentDoesNotEmbedOnTheRequestPath(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"deferred work"}`))
 	response := httptest.NewRecorder()
 
-	NewHandler(store, embedder, &fakeGenerator{}, &fakePublisher{}).ServeHTTP(response, request)
+	NewHandler(store, embedder, &fakeGenerator{}, &fakePublisher{}, &fakeExtractor{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusAccepted)
@@ -399,7 +399,7 @@ func TestSubmitDocumentPublishesTheJob(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"notify the worker"}`))
 	response := httptest.NewRecorder()
 
-	NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, publisher).ServeHTTP(response, request)
+	NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, publisher, &fakeExtractor{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusAccepted)
@@ -418,7 +418,7 @@ func TestSubmitDocumentSucceedsWhenPublishingFails(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"durable regardless"}`))
 	response := httptest.NewRecorder()
 
-	NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, publisher).ServeHTTP(response, request)
+	NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, publisher, &fakeExtractor{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d: the document is durable even when the notification fails", response.Code, http.StatusAccepted)

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/thenujawijesuriya/recall/internal/api"
 	"github.com/thenujawijesuriya/recall/internal/embedding"
+	"github.com/thenujawijesuriya/recall/internal/extraction"
 	"github.com/thenujawijesuriya/recall/internal/generation"
 	"github.com/thenujawijesuriya/recall/internal/queue"
 )
@@ -26,6 +27,11 @@ func main() {
 	answerClient, err := generation.NewOpenAIClient(os.Getenv("OPENAI_API_KEY"))
 	if err != nil {
 		log.Fatalf("configure answer client: %v", err)
+	}
+
+	extractor, err := extraction.NewPDFExtractor()
+	if err != nil {
+		log.Fatalf("configure pdf extraction: %v", err)
 	}
 
 	connectionContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -63,7 +69,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              address,
-		Handler:           api.NewHandler(api.NewPostgresStore(pool), embeddingClient, answerClient, publisher),
+		Handler:           api.NewHandler(api.NewPostgresStore(pool), embeddingClient, answerClient, publisher, extractor),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
