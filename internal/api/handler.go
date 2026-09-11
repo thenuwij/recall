@@ -24,7 +24,7 @@ const (
 var errDocumentNotFound = errors.New("document not found")
 
 type documentStore interface {
-	createDocument(ctx context.Context, content string, chunks []string) (string, string, error)
+	createDocument(ctx context.Context, doc newDocument, chunks []chunking.Chunk) (string, string, error)
 	getDocument(ctx context.Context, id string) (document, error)
 	searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error)
 }
@@ -59,12 +59,25 @@ type submitDocumentResponse struct {
 	Status string `json:"status"`
 }
 
+const (
+	sourceText = "text"
+	sourcePDF  = "pdf"
+)
+
+type newDocument struct {
+	Title      string
+	SourceType string
+	Content    string
+}
+
 type document struct {
-	ID        string    `json:"id"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
-	Status    string    `json:"status"`
-	Reason    string    `json:"reason,omitempty"`
+	ID         string    `json:"id"`
+	Title      string    `json:"title,omitempty"`
+	SourceType string    `json:"source_type"`
+	Content    string    `json:"content"`
+	CreatedAt  time.Time `json:"created_at"`
+	Status     string    `json:"status"`
+	Reason     string    `json:"reason,omitempty"`
 }
 
 type errorResponse struct {
@@ -119,12 +132,9 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chunks := h.splitter.Split(request.Content)
-	texts := make([]string, len(chunks))
-	for index, chunk := range chunks {
-		texts[index] = chunk.Text
-	}
+	doc := newDocument{SourceType: sourceText, Content: request.Content}
 
-	id, jobID, err := h.store.createDocument(r.Context(), request.Content, texts)
+	id, jobID, err := h.store.createDocument(r.Context(), doc, chunks)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not store document"})
 		return

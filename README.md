@@ -284,3 +284,13 @@ RECALL_TEST_REDIS_URL='redis://localhost:6381/0' go test ./internal/queue/ -v
 ```
 
 As with the PostgreSQL integration tests, a skipped test is not a passing test.
+
+## Milestone 8 documents, PDFs and source locations
+
+Chunks now record where they came from. Apply the source-location migration after migration 004:
+
+```sh
+docker compose exec -T postgres psql -U recall -d recall < migrations/005_add_source_locations.sql
+```
+
+Documents gain an optional `title` and a `source_type` of `text` or `pdf`. Each chunk records `start_offset` and `end_offset`, the byte range of its words in the original content, and PDF chunks record a `page_number`. A form feed in the content marks a page break, and no chunk crosses one. Rows created before migration 005 keep null offsets; re-ingest them rather than backfilling.

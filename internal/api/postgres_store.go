@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/thenujawijesuriya/recall/internal/chunking"
 )
 
 type PostgresStore struct {
@@ -18,7 +19,7 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{pool: pool}
 }
 
-func (s *PostgresStore) createDocument(ctx context.Context, content string, chunks []string) (string, string, error) {
+func (s *PostgresStore) createDocument(ctx context.Context, doc newDocument, chunks []chunking.Chunk) (string, string, error) {
 	transaction, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", "", err
@@ -28,22 +29,26 @@ func (s *PostgresStore) createDocument(ctx context.Context, content string, chun
 	}()
 
 	const insertDocumentQuery = `
-		INSERT INTO documents (id, content)
-		VALUES (gen_random_uuid(), $1)
+		INSERT INTO documents (id, title, source_type, content)
+		VALUES (gen_random_uuid(), NULLIF($1, ''), $2, $3)
 		RETURNING id::text
 	`
 
 	var id string
-	if err := transaction.QueryRow(ctx, insertDocumentQuery, content).Scan(&id); err != nil {
+	if err := transaction.QueryRow(ctx, insertDocumentQuery, doc.Title, doc.SourceType, doc.Content).Scan(&id); err != nil {
 		return "", "", err
 	}
 
 	const insertChunkQuery = `
-		INSERT INTO document_chunks (document_id, chunk_index, content)
-		VALUES ($1, $2, $3)
+		INSERT INTO document_chunks (document_id, chunk_index, content, page_number, start_offset, end_offset)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	for index, chunk := range chunks {
-		if _, err := transaction.Exec(ctx, insertChunkQuery, id, index, chunk); err != nil {
+		var page *int
+		if doc.SourceType == sourcePDF {
+			page = &chunk.Page
+		}
+		if _, err := transaction.Exec(ctx, insertChunkQuery, id, index, chunk.Text, page, chunk.Start, chunk.End); err != nil {
 			return "", "", err
 		}
 	}
@@ -80,7 +85,7 @@ func formatVector(values []float32) string {
 
 func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, error) {
 	const query = `
-		SELECT d.id::text, d.content, d.created_at, j.state, j.last_error
+		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.content, d.created_at, j.state, j.last_error
 		FROM documents d
 		LEFT JOIN ingestion_jobs j ON j.document_id = d.id
 		WHERE d.id = $1
@@ -90,6 +95,8 @@ func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, e
 	var state, lastError *string
 	err := s.pool.QueryRow(ctx, query, id).Scan(
 		&result.ID,
+		&result.Title,
+		&result.SourceType,
 		&result.Content,
 		&result.CreatedAt,
 		&state,

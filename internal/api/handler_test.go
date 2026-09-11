@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/thenujawijesuriya/recall/internal/chunking"
 	"github.com/thenujawijesuriya/recall/internal/embedding"
 	"github.com/thenujawijesuriya/recall/internal/generation"
 )
@@ -18,7 +19,7 @@ import (
 type memoryStore struct {
 	mu        sync.RWMutex
 	documents map[string]document
-	chunks    map[string][]string
+	chunks    map[string][]chunking.Chunk
 	err       error
 
 	searchResults []searchResult
@@ -35,19 +36,19 @@ type searchCall struct {
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
 		documents: make(map[string]document),
-		chunks:    make(map[string][]string),
+		chunks:    make(map[string][]chunking.Chunk),
 	}
 }
 
-func (s *memoryStore) createDocument(_ context.Context, content string, chunks []string) (string, string, error) {
+func (s *memoryStore) createDocument(_ context.Context, doc newDocument, chunks []chunking.Chunk) (string, string, error) {
 	if s.err != nil {
 		return "", "", s.err
 	}
 
 	const id = "test-document-id"
 	s.mu.Lock()
-	s.documents[id] = document{ID: id, Content: content, Status: statusQueued}
-	s.chunks[id] = append([]string(nil), chunks...)
+	s.documents[id] = document{ID: id, Title: doc.Title, SourceType: doc.SourceType, Content: doc.Content, Status: statusQueued}
+	s.chunks[id] = append([]chunking.Chunk(nil), chunks...)
 	s.mu.Unlock()
 	return id, "test-job-id", nil
 }
@@ -168,17 +169,21 @@ func TestSubmitDocumentCallsStore(t *testing.T) {
 	}
 
 	store.mu.RLock()
-	storedContent := store.documents[result.ID].Content
-	storedChunks := append([]string(nil), store.chunks[result.ID]...)
+	storedDocument := store.documents[result.ID]
+	storedChunks := append([]chunking.Chunk(nil), store.chunks[result.ID]...)
 	store.mu.RUnlock()
-	if storedContent != "stored temporarily" {
-		t.Fatalf("stored content = %q, want %q", storedContent, "stored temporarily")
+	if storedDocument.Content != "stored temporarily" {
+		t.Fatalf("stored content = %q, want %q", storedDocument.Content, "stored temporarily")
+	}
+	if storedDocument.SourceType != sourceText {
+		t.Fatalf("stored source type = %q, want %q", storedDocument.SourceType, sourceText)
 	}
 	if len(storedChunks) != 1 {
 		t.Fatalf("stored chunk count = %d, want 1", len(storedChunks))
 	}
-	if storedChunks[0] != "stored temporarily" {
-		t.Fatalf("stored chunk content = %q, want %q", storedChunks[0], "stored temporarily")
+	want := chunking.Chunk{Text: "stored temporarily", Start: 0, End: 18, Page: 1}
+	if storedChunks[0] != want {
+		t.Fatalf("stored chunk = %+v, want %+v", storedChunks[0], want)
 	}
 }
 
@@ -269,10 +274,12 @@ func TestGetDocument(t *testing.T) {
 	createdAt := time.Date(2026, time.September, 7, 7, 19, 52, 0, time.UTC)
 	store := newMemoryStore()
 	store.documents[id] = document{
-		ID:        id,
-		Content:   "This document was stored through the Recall API.",
-		CreatedAt: createdAt,
-		Status:    statusReady,
+		ID:         id,
+		Title:      "Lecture 3",
+		SourceType: sourcePDF,
+		Content:    "This document was stored through the Recall API.",
+		CreatedAt:  createdAt,
+		Status:     statusReady,
 	}
 	request := httptest.NewRequest(http.MethodGet, "/documents/"+id, nil)
 	response := httptest.NewRecorder()
@@ -282,7 +289,7 @@ func TestGetDocument(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusOK, response.Body.String())
 	}
-	wantBody := "{\"id\":\"0922cc91-c327-45e6-b38b-de38e208ddc7\",\"content\":\"This document was stored through the Recall API.\",\"created_at\":\"2026-09-07T07:19:52Z\",\"status\":\"ready\"}\n"
+	wantBody := "{\"id\":\"0922cc91-c327-45e6-b38b-de38e208ddc7\",\"title\":\"Lecture 3\",\"source_type\":\"pdf\",\"content\":\"This document was stored through the Recall API.\",\"created_at\":\"2026-09-07T07:19:52Z\",\"status\":\"ready\"}\n"
 	if got := response.Body.String(); got != wantBody {
 		t.Fatalf("body = %q, want %q", got, wantBody)
 	}
