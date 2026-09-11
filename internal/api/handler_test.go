@@ -27,6 +27,13 @@ type memoryStore struct {
 	searchCalls   []searchCall
 
 	locations map[string]chunkLocation
+
+	due         []dueCard
+	dueCalls    []dueCall
+	nextDue     *time.Time
+	reviewCards map[string]reviewCard
+	reviews     []newReview
+	reviewErr   error
 }
 
 type searchCall struct {
@@ -37,9 +44,10 @@ type searchCall struct {
 
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
-		documents: make(map[string]document),
-		chunks:    make(map[string][]chunking.Chunk),
-		locations: make(map[string]chunkLocation),
+		documents:   make(map[string]document),
+		chunks:      make(map[string][]chunking.Chunk),
+		locations:   make(map[string]chunkLocation),
+		reviewCards: make(map[string]reviewCard),
 	}
 }
 
@@ -110,6 +118,10 @@ type fakeGenerator struct {
 	answer string
 	err    error
 	calls  []generatorCall
+
+	grade      generation.Grade
+	gradeErr   error
+	gradeCalls []gradeCall
 }
 
 func (g *fakeGenerator) GenerateAnswer(_ context.Context, query string, passages []generation.Passage) (string, error) {

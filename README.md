@@ -352,3 +352,23 @@ Documents embedded before migration 006 have no card job. Queue one for each:
 docker compose exec -T postgres psql -U recall -d recall -c \
   "INSERT INTO ingestion_jobs (document_id, kind) SELECT document_id, 'generate_cards' FROM ingestion_jobs WHERE kind = 'embed' AND state = 'completed' ON CONFLICT (document_id, kind) DO NOTHING;"
 ```
+
+## Milestone 12 review loop
+
+List the cards due now. Cards due for review come first, oldest due first, followed by new cards in the order they appear in their document. New cards are capped at 20 per rolling 24 hours, counted by each card's first review; reviews are never capped. The response never contains the expected answer:
+
+```sh
+curl -i 'http://localhost:8080/reviews/due?limit=20'
+```
+
+`next_due_at` is the earliest scheduled time still in the future, or `null` when no card is scheduled.
+
+Answer a card in your own words, up to 2,000 characters:
+
+```sh
+curl -i http://localhost:8080/reviews/<card-id> \
+  -H 'Content-Type: application/json' \
+  -d '{"answer":"Pressure in the ventricle is between atrial and aortic pressure."}'
+```
+
+The answer is graded from 0 to 5 against the passage the card was generated from; no search happens at grading time. The response carries the `score`, a `label` (0–1 Forgot, 2 Almost, 3 Hard, 4 Good, 5 Easy), the `rationale`, the `expected_answer`, the `source` passage in context, and `next_due_at` from SM-2. The review row and the schedule update commit together, and the update only applies if the schedule has not changed since the card was loaded, so a double-submitted answer returns `409` instead of advancing the card twice. If grading fails, the response is `502` and nothing is written.

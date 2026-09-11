@@ -32,6 +32,10 @@ type documentStore interface {
 	deleteDocument(ctx context.Context, id string) error
 	chunkLocation(ctx context.Context, chunkID string) (chunkLocation, error)
 	searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error)
+	dueCards(ctx context.Context, limit, newCardCap int) ([]dueCard, error)
+	nextDueAt(ctx context.Context) (*time.Time, error)
+	reviewCard(ctx context.Context, cardID string) (reviewCard, error)
+	recordReview(ctx context.Context, review newReview) error
 }
 
 type embeddingGenerator interface {
@@ -40,6 +44,7 @@ type embeddingGenerator interface {
 
 type answerGenerator interface {
 	GenerateAnswer(ctx context.Context, query string, passages []generation.Passage) (string, error)
+	GradeAnswer(ctx context.Context, question, expectedAnswer, sourcePassage, learnerAnswer string) (generation.Grade, error)
 }
 
 type jobPublisher interface {
@@ -112,6 +117,8 @@ func NewHandler(store documentStore, embedder embeddingGenerator, generator answ
 	mux.HandleFunc("GET /chunks/{id}/context", h.chunkContext)
 	mux.HandleFunc("POST /search", h.search)
 	mux.HandleFunc("POST /answer", h.answer)
+	mux.HandleFunc("GET /reviews/due", h.dueReviews)
+	mux.HandleFunc("POST /reviews/{card_id}", h.submitReview)
 	mux.Handle("GET /", web.Handler())
 	return mux
 }
