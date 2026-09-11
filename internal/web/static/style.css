@@ -1,0 +1,247 @@
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1c1a;
+  --muted: #6b6b66;
+  --border: #e2e2dd;
+  --accent: #2f5bd3;
+  --accent-text: #ffffff;
+  --danger: #b3261e;
+  --mark: #ffe58a;
+  --ok: #1f7a3d;
+  --warn: #9a6700;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --surface: #1f1f1d;
+    --text: #ececea;
+    --muted: #a0a09a;
+    --border: #33332f;
+    --accent: #7c9cf5;
+    --accent-text: #10131c;
+    --danger: #f2877e;
+    --mark: #6b5a12;
+    --ok: #6fcf8f;
+    --warn: #e5b94f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+header .brand {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+nav {
+  display: flex;
+  gap: 4px;
+}
+
+nav a {
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+nav a[aria-current="page"] {
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 600;
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+h1 {
+  margin: 0 0 20px;
+  font-size: 24px;
+}
+
+h2 {
+  margin: 28px 0 12px;
+  font-size: 17px;
+}
+
+.panel {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+form.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+input[type="text"],
+textarea {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+button {
+  padding: 9px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.plain {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text);
+  font-weight: 400;
+}
+
+button.danger {
+  border-color: transparent;
+  background: transparent;
+  color: var(--danger);
+  font-weight: 400;
+}
+
+.message {
+  margin-top: 12px;
+  color: var(--muted);
+}
+
+.message.error {
+  color: var(--danger);
+}
+
+.documents {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.documents td {
+  padding: 10px 8px;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.documents .meta {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.status {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.status.ready {
+  color: var(--ok);
+}
+
+.status.queued,
+.status.processing {
+  color: var(--warn);
+}
+
+.status.failed {
+  color: var(--danger);
+}
+
+.answer {
+  white-space: pre-wrap;
+}
+
+.marker {
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.refusal {
+  border-left: 4px solid var(--warn);
+}
+
+.citations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.citations button {
+  text-align: left;
+}
+
+.context {
+  margin-top: 20px;
+}
+
+.context .source {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.context .text {
+  max-height: 360px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+mark {
+  padding: 1px 0;
+  background: var(--mark);
+  color: inherit;
+}
+
+.empty {
+  color: var(--muted);
+}

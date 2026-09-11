@@ -14,6 +14,7 @@ import (
 
 	"github.com/thenujawijesuriya/recall/internal/chunking"
 	"github.com/thenujawijesuriya/recall/internal/generation"
+	"github.com/thenujawijesuriya/recall/internal/web"
 )
 
 const (
@@ -109,6 +110,7 @@ func NewHandler(store documentStore, embedder embeddingGenerator, generator answ
 	mux.HandleFunc("GET /chunks/{id}/context", h.chunkContext)
 	mux.HandleFunc("POST /search", h.search)
 	mux.HandleFunc("POST /answer", h.answer)
+	mux.Handle("GET /", web.Handler())
 	return mux
 }
 
