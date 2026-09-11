@@ -31,6 +31,25 @@ Rules:
 
 var ErrInvalidAPIKey = errors.New("OpenAI API key must not be empty")
 
+type ProviderError struct {
+	StatusCode int
+	Status     string
+	Body       string
+}
+
+func (e *ProviderError) Error() string {
+	return fmt.Sprintf("OpenAI returned %s: %s", e.Status, e.Body)
+}
+
+func (e *ProviderError) Retryable() bool {
+	switch e.StatusCode {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests:
+		return true
+	}
+
+	return e.StatusCode >= http.StatusInternalServerError
+}
+
 // Passage is one numbered piece of retrieved evidence supplied to the model.
 type Passage struct {
 	Marker  int
@@ -64,11 +83,16 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
+type responseFormat struct {
+	Type string `json:"type"`
+}
+
 type chatRequest struct {
-	Model               string        `json:"model"`
-	Messages            []chatMessage `json:"messages"`
-	Temperature         float64       `json:"temperature"`
-	MaxCompletionTokens int           `json:"max_completion_tokens"`
+	Model               string          `json:"model"`
+	Messages            []chatMessage   `json:"messages"`
+	Temperature         float64         `json:"temperature"`
+	MaxCompletionTokens int             `json:"max_completion_tokens"`
+	ResponseFormat      *responseFormat `json:"response_format,omitempty"`
 }
 
 type chatResponse struct {
@@ -85,7 +109,7 @@ func (c *OpenAIClient) GenerateAnswer(ctx context.Context, query string, passage
 		return "", errors.New("at least one passage is required")
 	}
 
-	body, err := json.Marshal(chatRequest{
+	answer, err := c.complete(ctx, chatRequest{
 		Model: Model,
 		Messages: []chatMessage{
 			{Role: "system", Content: systemPrompt},
@@ -94,6 +118,19 @@ func (c *OpenAIClient) GenerateAnswer(ctx context.Context, query string, passage
 		Temperature:         0,
 		MaxCompletionTokens: maxCompletionTokens,
 	})
+	if err != nil {
+		return "", err
+	}
+
+	if answer == insufficientEvidence {
+		return "", nil
+	}
+
+	return answer, nil
+}
+
+func (c *OpenAIClient) complete(ctx context.Context, chat chatRequest) (string, error) {
+	body, err := json.Marshal(chat)
 	if err != nil {
 		return "", fmt.Errorf("encode request: %w", err)
 	}
@@ -113,7 +150,11 @@ func (c *OpenAIClient) GenerateAnswer(ctx context.Context, query string, passage
 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		providerMessage, _ := io.ReadAll(io.LimitReader(response.Body, maxErrorBodyBytes))
-		return "", fmt.Errorf("OpenAI returned %s: %s", response.Status, strings.TrimSpace(string(providerMessage)))
+		return "", &ProviderError{
+			StatusCode: response.StatusCode,
+			Status:     response.Status,
+			Body:       strings.TrimSpace(string(providerMessage)),
+		}
 	}
 
 	var result chatResponse
@@ -124,12 +165,7 @@ func (c *OpenAIClient) GenerateAnswer(ctx context.Context, query string, passage
 		return "", errors.New("OpenAI returned no choices")
 	}
 
-	answer := strings.TrimSpace(result.Choices[0].Message.Content)
-	if answer == insufficientEvidence {
-		return "", nil
-	}
-
-	return answer, nil
+	return strings.TrimSpace(result.Choices[0].Message.Content), nil
 }
 
 func buildUserMessage(query string, passages []Passage) string {
