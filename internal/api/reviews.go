@@ -100,7 +100,8 @@ func (h *handler) dueReviews(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 
-	cards, err := h.store.dueCards(r.Context(), limit, newCardsPerDay)
+	account, _ := userFromContext(r.Context())
+	cards, err := h.store.dueCards(r.Context(), limit, newCardsPerDay, account.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not load due cards"})
 		return
@@ -109,7 +110,7 @@ func (h *handler) dueReviews(w http.ResponseWriter, r *http.Request) {
 		cards = make([]dueCard, 0)
 	}
 
-	nextDueAt, err := h.store.nextDueAt(r.Context())
+	nextDueAt, err := h.store.nextDueAt(r.Context(), account.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not load due cards"})
 		return
@@ -155,7 +156,8 @@ func (h *handler) submitReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	card, err := h.store.reviewCard(r.Context(), cardID)
+	account, _ := userFromContext(r.Context())
+	card, err := h.store.reviewCard(r.Context(), cardID, account.ID)
 	if errors.Is(err, errCardNotFound) {
 		writeJSON(w, http.StatusNotFound, errorResponse{Error: "card not found"})
 		return
@@ -209,7 +211,7 @@ func (h *handler) submitReview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int) ([]dueCard, error) {
+func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int, userID string) ([]dueCard, error) {
 	const reviewQuery = `
 		SELECT k.id::text, k.question, COALESCE(d.title, ''), c.page_number
 		FROM card_schedule s
@@ -217,11 +219,12 @@ func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int) ([]
 		JOIN document_chunks c ON c.id = k.chunk_id
 		JOIN documents d ON d.id = c.document_id
 		WHERE s.due_at <= now()
+		    AND d.user_id = $2
 		    AND EXISTS (SELECT 1 FROM reviews r WHERE r.card_id = k.id)
 		ORDER BY s.due_at, k.id
 		LIMIT $1
 	`
-	cards, err := s.queryDueCards(ctx, reviewQuery, limit, false)
+	cards, err := s.queryDueCards(ctx, reviewQuery, limit, userID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -229,14 +232,18 @@ func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int) ([]
 	const introducedQuery = `
 		SELECT count(*)
 		FROM (
-			SELECT card_id
-			FROM reviews
-			GROUP BY card_id
-			HAVING min(reviewed_at) > now() - interval '24 hours'
+			SELECT r.card_id
+			FROM reviews r
+			JOIN cards k ON k.id = r.card_id
+			JOIN document_chunks c ON c.id = k.chunk_id
+			JOIN documents d ON d.id = c.document_id
+			WHERE d.user_id = $1
+			GROUP BY r.card_id
+			HAVING min(r.reviewed_at) > now() - interval '24 hours'
 		) introduced
 	`
 	var introduced int
-	if err := s.pool.QueryRow(ctx, introducedQuery).Scan(&introduced); err != nil {
+	if err := s.pool.QueryRow(ctx, introducedQuery, userID).Scan(&introduced); err != nil {
 		return nil, err
 	}
 
@@ -252,11 +259,12 @@ func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int) ([]
 		JOIN document_chunks c ON c.id = k.chunk_id
 		JOIN documents d ON d.id = c.document_id
 		WHERE s.due_at <= now()
+		    AND d.user_id = $2
 		    AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r.card_id = k.id)
 		ORDER BY s.due_at, c.chunk_index, k.id
 		LIMIT $1
 	`
-	newCards, err := s.queryDueCards(ctx, newQuery, newLimit, true)
+	newCards, err := s.queryDueCards(ctx, newQuery, newLimit, userID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -264,8 +272,8 @@ func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int) ([]
 	return append(cards, newCards...), nil
 }
 
-func (s *PostgresStore) queryDueCards(ctx context.Context, query string, limit int, isNew bool) ([]dueCard, error) {
-	rows, err := s.pool.Query(ctx, query, limit)
+func (s *PostgresStore) queryDueCards(ctx context.Context, query string, limit int, userID string, isNew bool) ([]dueCard, error) {
+	rows, err := s.pool.Query(ctx, query, limit, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -286,16 +294,25 @@ func (s *PostgresStore) queryDueCards(ctx context.Context, query string, limit i
 	return cards, nil
 }
 
-func (s *PostgresStore) nextDueAt(ctx context.Context) (*time.Time, error) {
+func (s *PostgresStore) nextDueAt(ctx context.Context, userID string) (*time.Time, error) {
+	const query = `
+		SELECT min(s.due_at)
+		FROM card_schedule s
+		JOIN cards k ON k.id = s.card_id
+		JOIN document_chunks c ON c.id = k.chunk_id
+		JOIN documents d ON d.id = c.document_id
+		WHERE s.due_at > now() AND d.user_id = $1
+	`
+
 	var next *time.Time
-	if err := s.pool.QueryRow(ctx, `SELECT min(due_at) FROM card_schedule WHERE due_at > now()`).Scan(&next); err != nil {
+	if err := s.pool.QueryRow(ctx, query, userID).Scan(&next); err != nil {
 		return nil, err
 	}
 
 	return next, nil
 }
 
-func (s *PostgresStore) reviewCard(ctx context.Context, cardID string) (reviewCard, error) {
+func (s *PostgresStore) reviewCard(ctx context.Context, cardID, userID string) (reviewCard, error) {
 	const query = `
 		SELECT k.question, k.expected_answer, c.content,
 			c.document_id::text, COALESCE(d.title, ''), d.source_type, d.content,
@@ -305,11 +322,11 @@ func (s *PostgresStore) reviewCard(ctx context.Context, cardID string) (reviewCa
 		JOIN card_schedule s ON s.card_id = k.id
 		JOIN document_chunks c ON c.id = k.chunk_id
 		JOIN documents d ON d.id = c.document_id
-		WHERE k.id = $1
+		WHERE k.id = $1 AND d.user_id = $2
 	`
 
 	var card reviewCard
-	err := s.pool.QueryRow(ctx, query, cardID).Scan(
+	err := s.pool.QueryRow(ctx, query, cardID, userID).Scan(
 		&card.Question,
 		&card.ExpectedAnswer,
 		&card.Passage,

@@ -57,7 +57,8 @@ func (h *handler) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	extension := strings.ToLower(filepath.Ext(filename))
-	doc := newDocument{Title: titleFromFilename(filename)}
+	account, _ := userFromContext(r.Context())
+	doc := newDocument{Title: titleFromFilename(filename), UserID: account.ID}
 
 	switch extension {
 	case ".txt", ".md", ".markdown":

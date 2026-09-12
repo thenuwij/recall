@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 )
 
-func (s *memoryStore) listDocuments(_ context.Context) ([]documentSummary, error) {
+func (s *memoryStore) listDocuments(_ context.Context, _ string) ([]documentSummary, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -39,7 +39,7 @@ func (s *memoryStore) listDocuments(_ context.Context) ([]documentSummary, error
 	return documents, nil
 }
 
-func (s *memoryStore) deleteDocument(_ context.Context, id string) error {
+func (s *memoryStore) deleteDocument(_ context.Context, id, _ string) error {
 	if s.err != nil {
 		return s.err
 	}
@@ -55,7 +55,7 @@ func (s *memoryStore) deleteDocument(_ context.Context, id string) error {
 	return nil
 }
 
-func (s *memoryStore) chunkLocation(_ context.Context, chunkID string) (chunkLocation, error) {
+func (s *memoryStore) chunkLocation(_ context.Context, chunkID, _ string) (chunkLocation, error) {
 	if s.err != nil {
 		return chunkLocation{}, s.err
 	}
@@ -82,6 +82,7 @@ const (
 func serve(store *memoryStore, method, path string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, path, nil)
 	response := httptest.NewRecorder()
+	signIn(store, request)
 	newTestHandler(store).ServeHTTP(response, request)
 	return response
 }

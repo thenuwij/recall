@@ -27,14 +27,14 @@ var errDocumentNotFound = errors.New("document not found")
 
 type documentStore interface {
 	createDocument(ctx context.Context, doc newDocument, chunks []chunking.Chunk) (string, string, error)
-	getDocument(ctx context.Context, id string) (document, error)
-	listDocuments(ctx context.Context) ([]documentSummary, error)
-	deleteDocument(ctx context.Context, id string) error
-	chunkLocation(ctx context.Context, chunkID string) (chunkLocation, error)
-	searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error)
-	dueCards(ctx context.Context, limit, newCardCap int) ([]dueCard, error)
-	nextDueAt(ctx context.Context) (*time.Time, error)
-	reviewCard(ctx context.Context, cardID string) (reviewCard, error)
+	getDocument(ctx context.Context, id, userID string) (document, error)
+	listDocuments(ctx context.Context, userID string) ([]documentSummary, error)
+	deleteDocument(ctx context.Context, id, userID string) error
+	chunkLocation(ctx context.Context, chunkID, userID string) (chunkLocation, error)
+	searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int, userID string) ([]searchResult, error)
+	dueCards(ctx context.Context, limit, newCardCap int, userID string) ([]dueCard, error)
+	nextDueAt(ctx context.Context, userID string) (*time.Time, error)
+	reviewCard(ctx context.Context, cardID, userID string) (reviewCard, error)
 	recordReview(ctx context.Context, review newReview) error
 	createUser(ctx context.Context, email, passwordHash string) (user, error)
 	userByEmail(ctx context.Context, email string) (user, string, error)
@@ -86,6 +86,7 @@ type newDocument struct {
 	Title      string
 	SourceType string
 	Content    string
+	UserID     string
 }
 
 type document struct {
@@ -118,16 +119,16 @@ func NewHandler(store documentStore, embedder embeddingGenerator, generator answ
 	mux.HandleFunc("POST /auth/login", h.login)
 	mux.HandleFunc("POST /auth/logout", h.logout)
 	mux.HandleFunc("GET /auth/me", h.requireUser(h.currentUser))
-	mux.HandleFunc("POST /documents", h.submitDocument)
-	mux.HandleFunc("POST /documents/upload", h.uploadDocument)
-	mux.HandleFunc("GET /documents", h.listDocuments)
-	mux.HandleFunc("GET /documents/{id}", h.getDocument)
-	mux.HandleFunc("DELETE /documents/{id}", h.deleteDocument)
-	mux.HandleFunc("GET /chunks/{id}/context", h.chunkContext)
-	mux.HandleFunc("POST /search", h.search)
-	mux.HandleFunc("POST /answer", h.answer)
-	mux.HandleFunc("GET /reviews/due", h.dueReviews)
-	mux.HandleFunc("POST /reviews/{card_id}", h.submitReview)
+	mux.HandleFunc("POST /documents", h.requireUser(h.submitDocument))
+	mux.HandleFunc("POST /documents/upload", h.requireUser(h.uploadDocument))
+	mux.HandleFunc("GET /documents", h.requireUser(h.listDocuments))
+	mux.HandleFunc("GET /documents/{id}", h.requireUser(h.getDocument))
+	mux.HandleFunc("DELETE /documents/{id}", h.requireUser(h.deleteDocument))
+	mux.HandleFunc("GET /chunks/{id}/context", h.requireUser(h.chunkContext))
+	mux.HandleFunc("POST /search", h.requireUser(h.search))
+	mux.HandleFunc("POST /answer", h.requireUser(h.answer))
+	mux.HandleFunc("GET /reviews/due", h.requireUser(h.dueReviews))
+	mux.HandleFunc("POST /reviews/{card_id}", h.requireUser(h.submitReview))
 	mux.Handle("GET /", web.Handler())
 	return mux
 }
@@ -168,8 +169,9 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	account, _ := userFromContext(r.Context())
 	chunks := h.splitter.Split(request.Content)
-	doc := newDocument{Title: title, SourceType: sourceText, Content: request.Content}
+	doc := newDocument{Title: title, SourceType: sourceText, Content: request.Content, UserID: account.ID}
 
 	id, jobID, err := h.store.createDocument(r.Context(), doc, chunks)
 	if err != nil {
@@ -199,7 +201,8 @@ func (h *handler) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.store.getDocument(r.Context(), id)
+	account, _ := userFromContext(r.Context())
+	result, err := h.store.getDocument(r.Context(), id, account.ID)
 	if errors.Is(err, errDocumentNotFound) {
 		writeJSON(w, http.StatusNotFound, errorResponse{Error: "document not found"})
 		return

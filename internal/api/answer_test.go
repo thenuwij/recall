@@ -28,6 +28,7 @@ func postAnswer(t *testing.T, store *memoryStore, gen *fakeGenerator, body strin
 
 	request := httptest.NewRequest(http.MethodPost, "/answer", strings.NewReader(body))
 	response := httptest.NewRecorder()
+	signIn(store, request)
 	NewHandler(store, &fakeEmbedder{}, gen, &fakePublisher{}, &fakeExtractor{}).ServeHTTP(response, request)
 	return response
 }
@@ -261,6 +262,7 @@ func TestAnswerHandlesEmbeddingFailure(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/answer", strings.NewReader(`{"query":"a"}`))
 	response := httptest.NewRecorder()
 
+	signIn(store, request)
 	NewHandler(store, &fakeEmbedder{err: errors.New("provider unavailable")}, gen, &fakePublisher{}, &fakeExtractor{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusBadGateway {

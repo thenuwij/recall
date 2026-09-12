@@ -63,6 +63,7 @@ func uploadRequest(t *testing.T, field, filename string, content []byte) *http.R
 
 func serveUpload(store *memoryStore, extractor *fakeExtractor, publisher *fakePublisher, request *http.Request) *httptest.ResponseRecorder {
 	response := httptest.NewRecorder()
+	signIn(store, request)
 	NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, publisher, extractor).ServeHTTP(response, request)
 	return response
 }
@@ -321,6 +322,7 @@ func TestSubmitDocumentStoresOptionalTitle(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"notes","title":"  Week 1  "}`))
 	response := httptest.NewRecorder()
 
+	signIn(store, request)
 	newTestHandler(store).ServeHTTP(response, request)
 
 	if response.Code != http.StatusAccepted {
@@ -339,7 +341,10 @@ func TestSubmitDocumentRejectsLongTitle(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(body))
 	response := httptest.NewRecorder()
 
-	newTestHandler(newMemoryStore()).ServeHTTP(response, request)
+	store := newMemoryStore()
+	signIn(store, request)
+	signIn(store, request)
+	newTestHandler(store).ServeHTTP(response, request)
 
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)

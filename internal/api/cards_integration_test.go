@@ -104,7 +104,7 @@ func TestPostgresCompleteCardJobStoresCardsWithSchedules(t *testing.T) {
 		t.Fatalf("cards with schedules = %d, want 2", schedules)
 	}
 
-	stored, err := store.getDocument(ctx, id)
+	stored, err := store.getDocument(ctx, id, testOwnerID)
 	if err != nil {
 		t.Fatalf("getDocument: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestPostgresCompleteCardJobIsAtomic(t *testing.T) {
 		t.Fatalf("cards = %d, schedules = %d, want the first card rolled back", cards, schedules)
 	}
 
-	stored, err := store.getDocument(ctx, id)
+	stored, err := store.getDocument(ctx, id, testOwnerID)
 	if err != nil {
 		t.Fatalf("getDocument: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestPostgresDeleteDocumentCascadesToCards(t *testing.T) {
 		t.Fatalf("insert review: %v", err)
 	}
 
-	if err := store.deleteDocument(ctx, id); err != nil {
+	if err := store.deleteDocument(ctx, id, testOwnerID); err != nil {
 		t.Fatalf("deleteDocument: %v", err)
 	}
 

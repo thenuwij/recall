@@ -17,6 +17,7 @@ func postSearch(t *testing.T, store *memoryStore, embedder embeddingGenerator, b
 
 	request := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(body))
 	response := httptest.NewRecorder()
+	signIn(store, request)
 	NewHandler(store, embedder, &fakeGenerator{}, &fakePublisher{}, &fakeExtractor{}).ServeHTTP(response, request)
 	return response
 }

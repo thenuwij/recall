@@ -51,7 +51,8 @@ type passageContextResponse struct {
 }
 
 func (h *handler) listDocuments(w http.ResponseWriter, r *http.Request) {
-	documents, err := h.store.listDocuments(r.Context())
+	account, _ := userFromContext(r.Context())
+	documents, err := h.store.listDocuments(r.Context(), account.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not list documents"})
 		return
@@ -71,7 +72,8 @@ func (h *handler) deleteDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.store.deleteDocument(r.Context(), id)
+	account, _ := userFromContext(r.Context())
+	err := h.store.deleteDocument(r.Context(), id, account.ID)
 	if errors.Is(err, errDocumentNotFound) {
 		writeJSON(w, http.StatusNotFound, errorResponse{Error: "document not found"})
 		return
@@ -91,7 +93,8 @@ func (h *handler) chunkContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	location, err := h.store.chunkLocation(r.Context(), id)
+	account, _ := userFromContext(r.Context())
+	location, err := h.store.chunkLocation(r.Context(), id, account.ID)
 	if errors.Is(err, errChunkNotFound) {
 		writeJSON(w, http.StatusNotFound, errorResponse{Error: "chunk not found"})
 		return

@@ -234,3 +234,50 @@ func TestLogoutClearsTheSession(t *testing.T) {
 		t.Fatalf("status after logout = %d, want %d", followUpResponse.Code, http.StatusUnauthorized)
 	}
 }
+
+func TestProtectedRoutesRequireASession(t *testing.T) {
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/documents"},
+		{method: http.MethodPost, path: "/documents/upload"},
+		{method: http.MethodGet, path: "/documents"},
+		{method: http.MethodGet, path: "/documents/9e2b1f8c-0000-4000-8000-000000000000"},
+		{method: http.MethodDelete, path: "/documents/9e2b1f8c-0000-4000-8000-000000000000"},
+		{method: http.MethodGet, path: "/chunks/9e2b1f8c-0000-4000-8000-000000000000/context"},
+		{method: http.MethodPost, path: "/search"},
+		{method: http.MethodPost, path: "/answer"},
+		{method: http.MethodGet, path: "/reviews/due"},
+		{method: http.MethodPost, path: "/reviews/9e2b1f8c-0000-4000-8000-000000000000"},
+	}
+
+	handler := newTestHandler(newMemoryStore())
+	for _, testCase := range cases {
+		t.Run(testCase.method+" "+testCase.path, func(t *testing.T) {
+			request := httptest.NewRequest(testCase.method, testCase.path, strings.NewReader("{}"))
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
+func TestHealthAndWebRemainPublic(t *testing.T) {
+	handler := newTestHandler(newMemoryStore())
+
+	for _, path := range []string{"/healthz", "/"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+
+		handler.ServeHTTP(response, request)
+
+		if response.Code == http.StatusUnauthorized {
+			t.Fatalf("%s returned %d, want it to stay public", path, http.StatusUnauthorized)
+		}
+	}
+}

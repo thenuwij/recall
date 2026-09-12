@@ -88,7 +88,8 @@ func (h *handler) answer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.store.searchChunks(r.Context(), embeddings[0], embedding.Model, limit)
+	account, _ := userFromContext(r.Context())
+	results, err := h.store.searchChunks(r.Context(), embeddings[0], embedding.Model, limit, account.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not search documents"})
 		return

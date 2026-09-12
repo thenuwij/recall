@@ -120,3 +120,52 @@ func TestPostgresDeletingUserRemovesSessions(t *testing.T) {
 		t.Fatalf("error = %v, want %v", err, errSessionNotFound)
 	}
 }
+
+func TestPostgresDocumentsAreScopedToTheirOwner(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	stranger := createTestUser(t, store, "stranger@example.com")
+
+	id := createTestDocument(t, store, pool, newDocument{Title: "Owned", SourceType: sourceText, Content: "one two three four five six"})
+	ctx := context.Background()
+
+	if _, err := store.getDocument(ctx, id, stranger.ID); !errors.Is(err, errDocumentNotFound) {
+		t.Fatalf("getDocument as a stranger = %v, want %v", err, errDocumentNotFound)
+	}
+
+	documents, err := store.listDocuments(ctx, stranger.ID)
+	if err != nil {
+		t.Fatalf("listDocuments: %v", err)
+	}
+	for _, summary := range documents {
+		if summary.ID == id {
+			t.Fatal("listDocuments returned another user's document")
+		}
+	}
+
+	if err := store.deleteDocument(ctx, id, stranger.ID); !errors.Is(err, errDocumentNotFound) {
+		t.Fatalf("deleteDocument as a stranger = %v, want %v", err, errDocumentNotFound)
+	}
+
+	if _, err := store.getDocument(ctx, id, testOwnerID); err != nil {
+		t.Fatalf("the owner can no longer read their own document: %v", err)
+	}
+}
+
+func TestPostgresSearchIsScopedToTheirOwner(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	stranger := createTestUser(t, store, "search-stranger@example.com")
+
+	createTestDocument(t, store, pool, newDocument{Title: "Owned", SourceType: sourceText, Content: "one two three four five six"})
+	ctx := context.Background()
+
+	results, err := store.searchChunks(ctx, testVector(1, 0), "text-embedding-3-small", 20, stranger.ID)
+	if err != nil {
+		t.Fatalf("searchChunks: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Fatalf("search returned %d chunks for a user who owns nothing, want 0", len(results))
+	}
+}

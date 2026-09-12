@@ -167,7 +167,7 @@ func (e *fakeEmbedder) Embed(_ context.Context, inputs []string) ([][]float32, e
 	return result, nil
 }
 
-func (s *memoryStore) searchChunks(_ context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error) {
+func (s *memoryStore) searchChunks(_ context.Context, queryEmbedding []float32, model string, limit int, _ string) ([]searchResult, error) {
 	s.mu.Lock()
 	s.searchCalls = append(s.searchCalls, searchCall{
 		embedding: append([]float32(nil), queryEmbedding...),
@@ -209,11 +209,24 @@ func (g *fakeGenerator) GenerateAnswer(_ context.Context, query string, passages
 	return g.answer, nil
 }
 
+const testAccountID = "test-account-id"
+
+func signIn(store *memoryStore, request *http.Request) *http.Request {
+	store.mu.Lock()
+	store.users["signed-in@example.com"] = user{ID: testAccountID, Email: "signed-in@example.com"}
+	store.sessions["signed-in-token"] = testAccountID
+	store.mu.Unlock()
+
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "signed-in-token"})
+
+	return request
+}
+
 func newTestHandler(store documentStore) http.Handler {
 	return NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, &fakePublisher{}, &fakeExtractor{})
 }
 
-func (s *memoryStore) getDocument(_ context.Context, id string) (document, error) {
+func (s *memoryStore) getDocument(_ context.Context, id, _ string) (document, error) {
 	if s.err != nil {
 		return document{}, s.err
 	}
@@ -232,7 +245,10 @@ func TestHealth(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	response := httptest.NewRecorder()
 
-	newTestHandler(newMemoryStore()).ServeHTTP(response, request)
+	store := newMemoryStore()
+	signIn(store, request)
+	signIn(store, request)
+	newTestHandler(store).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
@@ -247,6 +263,7 @@ func TestSubmitDocumentCallsStore(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"stored temporarily"}`))
 	response := httptest.NewRecorder()
 
+	signIn(store, request)
 	newTestHandler(store).ServeHTTP(response, request)
 
 	var result submitDocumentResponse
@@ -282,6 +299,7 @@ func TestSubmitDocumentDoesNotEmbedOnTheRequestPath(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"deferred work"}`))
 	response := httptest.NewRecorder()
 
+	signIn(store, request)
 	NewHandler(store, embedder, &fakeGenerator{}, &fakePublisher{}, &fakeExtractor{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusAccepted {
@@ -330,7 +348,10 @@ func TestSubmitDocument(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(tt.body))
 			response := httptest.NewRecorder()
 
-			newTestHandler(newMemoryStore()).ServeHTTP(response, request)
+			store := newMemoryStore()
+			signIn(store, request)
+			signIn(store, request)
+			newTestHandler(store).ServeHTTP(response, request)
 
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d; body = %s", response.Code, tt.wantStatus, response.Body.String())
@@ -348,6 +369,7 @@ func TestSubmitDocumentHandlesStoreFailure(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"valid content"}`))
 	response := httptest.NewRecorder()
 
+	signIn(store, request)
 	newTestHandler(store).ServeHTTP(response, request)
 
 	if response.Code != http.StatusInternalServerError {
@@ -375,6 +397,7 @@ func TestGetDocument(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/documents/"+id, nil)
 	response := httptest.NewRecorder()
 
+	signIn(store, request)
 	newTestHandler(store).ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
@@ -398,6 +421,7 @@ func TestGetDocumentReportsIngestionFailureReason(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/documents/"+id, nil)
 	response := httptest.NewRecorder()
 
+	signIn(store, request)
 	newTestHandler(store).ServeHTTP(response, request)
 
 	var result document
@@ -472,6 +496,7 @@ func TestGetDocumentErrors(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, "/documents/"+tt.id, nil)
 			response := httptest.NewRecorder()
 
+			signIn(store, request)
 			newTestHandler(store).ServeHTTP(response, request)
 
 			if response.Code != tt.wantStatus {
@@ -490,6 +515,7 @@ func TestSubmitDocumentPublishesTheJob(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"notify the worker"}`))
 	response := httptest.NewRecorder()
 
+	signIn(store, request)
 	NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, publisher, &fakeExtractor{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusAccepted {
@@ -509,6 +535,7 @@ func TestSubmitDocumentSucceedsWhenPublishingFails(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/documents", strings.NewReader(`{"content":"durable regardless"}`))
 	response := httptest.NewRecorder()
 
+	signIn(store, request)
 	NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, publisher, &fakeExtractor{}).ServeHTTP(response, request)
 
 	if response.Code != http.StatusAccepted {

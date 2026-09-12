@@ -36,7 +36,7 @@ func (g *fakeGenerator) GradeAnswer(_ context.Context, question, expectedAnswer,
 	return g.grade, nil
 }
 
-func (s *memoryStore) dueCards(_ context.Context, limit, newCardCap int) ([]dueCard, error) {
+func (s *memoryStore) dueCards(_ context.Context, limit, newCardCap int, _ string) ([]dueCard, error) {
 	s.dueCalls = append(s.dueCalls, dueCall{limit: limit, newCardCap: newCardCap})
 	if s.err != nil {
 		return nil, s.err
@@ -44,14 +44,14 @@ func (s *memoryStore) dueCards(_ context.Context, limit, newCardCap int) ([]dueC
 	return s.due, nil
 }
 
-func (s *memoryStore) nextDueAt(_ context.Context) (*time.Time, error) {
+func (s *memoryStore) nextDueAt(_ context.Context, _ string) (*time.Time, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
 	return s.nextDue, nil
 }
 
-func (s *memoryStore) reviewCard(_ context.Context, cardID string) (reviewCard, error) {
+func (s *memoryStore) reviewCard(_ context.Context, cardID, _ string) (reviewCard, error) {
 	if s.err != nil {
 		return reviewCard{}, s.err
 	}
@@ -95,6 +95,7 @@ func testReviewCard() reviewCard {
 func serveReview(store *memoryStore, generator *fakeGenerator, cardID, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodPost, "/reviews/"+cardID, strings.NewReader(body))
 	response := httptest.NewRecorder()
+	signIn(store, request)
 	NewHandler(store, &fakeEmbedder{}, generator, &fakePublisher{}, &fakeExtractor{}).ServeHTTP(response, request)
 	return response
 }

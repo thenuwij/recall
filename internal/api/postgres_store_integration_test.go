@@ -10,6 +10,21 @@ import (
 	"github.com/thenujawijesuriya/recall/internal/chunking"
 )
 
+const testOwnerID = "00000000-0000-0000-0000-00000000f00d"
+
+func ensureTestOwner(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+
+	const query = `
+		INSERT INTO users (id, email, password_hash)
+		VALUES ($1, 'fixtures@example.com', 'fixture-hash')
+		ON CONFLICT (id) DO NOTHING
+	`
+	if _, err := pool.Exec(context.Background(), query, testOwnerID); err != nil {
+		t.Fatalf("create fixture owner: %v", err)
+	}
+}
+
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
@@ -27,6 +42,8 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	if err := pool.Ping(context.Background()); err != nil {
 		t.Fatalf("ping test database: %v", err)
 	}
+
+	ensureTestOwner(t, pool)
 
 	return pool
 }
@@ -51,8 +68,8 @@ func insertFixture(t *testing.T, pool *pgxpool.Pool) {
 	})
 
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO documents (id, content) VALUES ($1, 'retrieval integration fixture')`,
-		fixtureDocumentID,
+		`INSERT INTO documents (id, content, user_id) VALUES ($1, 'retrieval integration fixture', $2)`,
+		fixtureDocumentID, testOwnerID,
 	); err != nil {
 		t.Fatalf("insert fixture document: %v", err)
 	}
@@ -91,7 +108,7 @@ func TestPostgresSearchChunksRanksByCosineSimilarity(t *testing.T) {
 	insertFixture(t, pool)
 	store := NewPostgresStore(pool)
 
-	results, err := store.searchChunks(context.Background(), testVector(1, 0), "text-embedding-3-small", 20)
+	results, err := store.searchChunks(context.Background(), testVector(1, 0), "text-embedding-3-small", 20, testOwnerID)
 	if err != nil {
 		t.Fatalf("searchChunks: %v", err)
 	}
@@ -134,7 +151,7 @@ func TestPostgresSearchChunksExcludesNullAndOtherModels(t *testing.T) {
 	insertFixture(t, pool)
 	store := NewPostgresStore(pool)
 
-	results, err := store.searchChunks(context.Background(), testVector(1, 0), "text-embedding-3-small", 20)
+	results, err := store.searchChunks(context.Background(), testVector(1, 0), "text-embedding-3-small", 20, testOwnerID)
 	if err != nil {
 		t.Fatalf("searchChunks: %v", err)
 	}
@@ -154,7 +171,7 @@ func TestPostgresSearchChunksRespectsLimit(t *testing.T) {
 	insertFixture(t, pool)
 	store := NewPostgresStore(pool)
 
-	results, err := store.searchChunks(context.Background(), testVector(1, 0), "text-embedding-3-small", 2)
+	results, err := store.searchChunks(context.Background(), testVector(1, 0), "text-embedding-3-small", 2, testOwnerID)
 	if err != nil {
 		t.Fatalf("searchChunks: %v", err)
 	}
@@ -170,7 +187,7 @@ func TestPostgresSearchChunksHonoursCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := store.searchChunks(ctx, testVector(1, 0), "text-embedding-3-small", 5); err == nil {
+	if _, err := store.searchChunks(ctx, testVector(1, 0), "text-embedding-3-small", 5, testOwnerID); err == nil {
 		t.Fatal("searchChunks() error = nil, want an error for a cancelled context")
 	}
 }
@@ -273,6 +290,7 @@ func createTestDocument(t *testing.T, store *PostgresStore, pool *pgxpool.Pool, 
 		t.Fatalf("create splitter: %v", err)
 	}
 
+	doc.UserID = testOwnerID
 	id, _, err := store.createDocument(ctx, doc, splitter.Split(doc.Content))
 	if err != nil {
 		t.Fatalf("createDocument: %v", err)
@@ -296,7 +314,7 @@ func TestPostgresCreateDocumentStoresPDFSpansAndPages(t *testing.T) {
 		Content:    "one two\fthree four",
 	})
 
-	stored, err := store.getDocument(context.Background(), id)
+	stored, err := store.getDocument(context.Background(), id, testOwnerID)
 	if err != nil {
 		t.Fatalf("getDocument: %v", err)
 	}
@@ -333,7 +351,7 @@ func TestPostgresCreateDocumentStoresTextWithoutPages(t *testing.T) {
 		Content:    "plain text document",
 	})
 
-	stored, err := store.getDocument(context.Background(), id)
+	stored, err := store.getDocument(context.Background(), id, testOwnerID)
 	if err != nil {
 		t.Fatalf("getDocument: %v", err)
 	}
@@ -379,7 +397,7 @@ func TestPostgresListDocumentsIncludesStatusAndTitle(t *testing.T) {
 
 	id := createTestDocument(t, store, pool, newDocument{Title: "Listed", SourceType: sourcePDF, Content: "listed document"})
 
-	documents, err := store.listDocuments(context.Background())
+	documents, err := store.listDocuments(context.Background(), testOwnerID)
 	if err != nil {
 		t.Fatalf("listDocuments: %v", err)
 	}
@@ -401,7 +419,7 @@ func TestPostgresDocumentStatusSeparatesEmbedAndCardJobs(t *testing.T) {
 
 	id := createTestDocument(t, store, pool, newDocument{Title: "Two jobs", SourceType: sourceText, Content: "document with two jobs"})
 
-	stored, err := store.getDocument(ctx, id)
+	stored, err := store.getDocument(ctx, id, testOwnerID)
 	if err != nil {
 		t.Fatalf("getDocument: %v", err)
 	}
@@ -417,7 +435,7 @@ func TestPostgresDocumentStatusSeparatesEmbedAndCardJobs(t *testing.T) {
 		t.Fatalf("completeIngestionJob: %v", err)
 	}
 
-	stored, err = store.getDocument(ctx, id)
+	stored, err = store.getDocument(ctx, id, testOwnerID)
 	if err != nil {
 		t.Fatalf("getDocument after completion: %v", err)
 	}
@@ -425,7 +443,7 @@ func TestPostgresDocumentStatusSeparatesEmbedAndCardJobs(t *testing.T) {
 		t.Fatalf("status = %q, cards_status = %q, want %q and %q", stored.Status, stored.CardsStatus, statusReady, statusQueued)
 	}
 
-	documents, err := store.listDocuments(ctx)
+	documents, err := store.listDocuments(ctx, testOwnerID)
 	if err != nil {
 		t.Fatalf("listDocuments: %v", err)
 	}
@@ -451,7 +469,7 @@ func TestPostgresDeleteDocumentCascades(t *testing.T) {
 
 	id := createTestDocument(t, store, pool, newDocument{SourceType: sourceText, Content: "document to delete"})
 
-	if err := store.deleteDocument(ctx, id); err != nil {
+	if err := store.deleteDocument(ctx, id, testOwnerID); err != nil {
 		t.Fatalf("deleteDocument: %v", err)
 	}
 
@@ -466,7 +484,7 @@ func TestPostgresDeleteDocumentCascades(t *testing.T) {
 		t.Fatalf("after delete: chunks = %d, jobs = %d, want 0 and 0", chunks, jobs)
 	}
 
-	if err := store.deleteDocument(ctx, id); !errors.Is(err, errDocumentNotFound) {
+	if err := store.deleteDocument(ctx, id, testOwnerID); !errors.Is(err, errDocumentNotFound) {
 		t.Fatalf("second delete error = %v, want %v", err, errDocumentNotFound)
 	}
 }
@@ -488,7 +506,7 @@ func TestPostgresChunkLocationAndSearchIncludeTitleAndPage(t *testing.T) {
 		t.Fatalf("embed page two chunk: %v", err)
 	}
 
-	location, err := store.chunkLocation(ctx, chunkID)
+	location, err := store.chunkLocation(ctx, chunkID, testOwnerID)
 	if err != nil {
 		t.Fatalf("chunkLocation: %v", err)
 	}
@@ -497,7 +515,7 @@ func TestPostgresChunkLocationAndSearchIncludeTitleAndPage(t *testing.T) {
 		t.Fatalf("location = %+v", location)
 	}
 
-	results, err := store.searchChunks(ctx, testVector(1, 0), "test-location-model", 5)
+	results, err := store.searchChunks(ctx, testVector(1, 0), "test-location-model", 5, testOwnerID)
 	if err != nil {
 		t.Fatalf("searchChunks: %v", err)
 	}
@@ -505,7 +523,7 @@ func TestPostgresChunkLocationAndSearchIncludeTitleAndPage(t *testing.T) {
 		t.Fatalf("results = %+v, want one result titled Lecture 3 on page 2", results)
 	}
 
-	if _, err := store.chunkLocation(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, errChunkNotFound) {
+	if _, err := store.chunkLocation(ctx, "00000000-0000-0000-0000-000000000000", testOwnerID); !errors.Is(err, errChunkNotFound) {
 		t.Fatalf("unknown chunk error = %v, want %v", err, errChunkNotFound)
 	}
 }

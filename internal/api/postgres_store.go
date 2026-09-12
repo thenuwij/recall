@@ -31,13 +31,13 @@ func (s *PostgresStore) createDocument(ctx context.Context, doc newDocument, chu
 	}()
 
 	const insertDocumentQuery = `
-		INSERT INTO documents (id, title, source_type, content)
-		VALUES (gen_random_uuid(), NULLIF($1, ''), $2, $3)
+		INSERT INTO documents (id, title, source_type, content, user_id)
+		VALUES (gen_random_uuid(), NULLIF($1, ''), $2, $3, $4)
 		RETURNING id::text
 	`
 
 	var id string
-	if err := transaction.QueryRow(ctx, insertDocumentQuery, doc.Title, doc.SourceType, doc.Content).Scan(&id); err != nil {
+	if err := transaction.QueryRow(ctx, insertDocumentQuery, doc.Title, doc.SourceType, doc.Content, doc.UserID).Scan(&id); err != nil {
 		return "", "", err
 	}
 
@@ -85,7 +85,7 @@ func formatVector(values []float32) string {
 	return result.String()
 }
 
-func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, error) {
+func (s *PostgresStore) getDocument(ctx context.Context, id, userID string) (document, error) {
 	const query = `
 		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.content, d.created_at, e.state, e.last_error, c.state,
 			(
@@ -97,12 +97,12 @@ func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, e
 		FROM documents d
 		LEFT JOIN ingestion_jobs e ON e.document_id = d.id AND e.kind = $2
 		LEFT JOIN ingestion_jobs c ON c.document_id = d.id AND c.kind = $3
-		WHERE d.id = $1
+		WHERE d.id = $1 AND d.user_id = $4
 	`
 
 	var result document
 	var state, lastError, cardState *string
-	err := s.pool.QueryRow(ctx, query, id, jobKindEmbed, jobKindCards).Scan(
+	err := s.pool.QueryRow(ctx, query, id, jobKindEmbed, jobKindCards, userID).Scan(
 		&result.ID,
 		&result.Title,
 		&result.SourceType,
@@ -129,7 +129,7 @@ func (s *PostgresStore) getDocument(ctx context.Context, id string) (document, e
 	return result, nil
 }
 
-func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int) ([]searchResult, error) {
+func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int, userID string) ([]searchResult, error) {
 	const query = `
 		SELECT
 			c.id::text,
@@ -143,11 +143,12 @@ func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float
 		JOIN documents d ON d.id = c.document_id
 		WHERE c.embedding IS NOT NULL
 			AND c.embedding_model = $2
+			AND d.user_id = $4
 		ORDER BY c.embedding <=> $1::vector, c.document_id, c.chunk_index
 		LIMIT $3
 	`
 
-	rows, err := s.pool.Query(ctx, query, formatVector(queryEmbedding), model, limit)
+	rows, err := s.pool.Query(ctx, query, formatVector(queryEmbedding), model, limit, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +177,7 @@ func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float
 	return results, nil
 }
 
-func (s *PostgresStore) listDocuments(ctx context.Context) ([]documentSummary, error) {
+func (s *PostgresStore) listDocuments(ctx context.Context, userID string) ([]documentSummary, error) {
 	const query = `
 		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.created_at, e.state, c.state,
 			(
@@ -188,10 +189,11 @@ func (s *PostgresStore) listDocuments(ctx context.Context) ([]documentSummary, e
 		FROM documents d
 		LEFT JOIN ingestion_jobs e ON e.document_id = d.id AND e.kind = $1
 		LEFT JOIN ingestion_jobs c ON c.document_id = d.id AND c.kind = $2
+		WHERE d.user_id = $3
 		ORDER BY d.created_at DESC, d.id
 	`
 
-	rows, err := s.pool.Query(ctx, query, jobKindEmbed, jobKindCards)
+	rows, err := s.pool.Query(ctx, query, jobKindEmbed, jobKindCards, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +217,8 @@ func (s *PostgresStore) listDocuments(ctx context.Context) ([]documentSummary, e
 	return documents, nil
 }
 
-func (s *PostgresStore) deleteDocument(ctx context.Context, id string) error {
-	result, err := s.pool.Exec(ctx, `DELETE FROM documents WHERE id = $1`, id)
+func (s *PostgresStore) deleteDocument(ctx context.Context, id, userID string) error {
+	result, err := s.pool.Exec(ctx, `DELETE FROM documents WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return err
 	}
@@ -227,17 +229,17 @@ func (s *PostgresStore) deleteDocument(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *PostgresStore) chunkLocation(ctx context.Context, chunkID string) (chunkLocation, error) {
+func (s *PostgresStore) chunkLocation(ctx context.Context, chunkID, userID string) (chunkLocation, error) {
 	const query = `
 		SELECT c.document_id::text, COALESCE(d.title, ''), d.source_type, d.content,
 			c.page_number, c.start_offset, c.end_offset
 		FROM document_chunks c
 		JOIN documents d ON d.id = c.document_id
-		WHERE c.id = $1
+		WHERE c.id = $1 AND d.user_id = $2
 	`
 
 	var location chunkLocation
-	err := s.pool.QueryRow(ctx, query, chunkID).Scan(
+	err := s.pool.QueryRow(ctx, query, chunkID, userID).Scan(
 		&location.DocumentID,
 		&location.Title,
 		&location.SourceType,

@@ -76,7 +76,7 @@ func insertReviewAt(t *testing.T, pool *pgxpool.Pool, cardID string, age time.Du
 func ownDueCards(t *testing.T, store *PostgresStore, limit int, ids []string) []dueCard {
 	t.Helper()
 
-	cards, err := store.dueCards(context.Background(), limit, newCardsPerDay)
+	cards, err := store.dueCards(context.Background(), limit, newCardsPerDay, testOwnerID)
 	if err != nil {
 		t.Fatalf("dueCards: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestPostgresDueCardsOrdersReviewsBeforeNewCards(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), `SELECT due_at FROM card_schedule WHERE card_id = $1`, ids[3]).Scan(&futureDue); err != nil {
 		t.Fatalf("read due_at: %v", err)
 	}
-	next, err := store.nextDueAt(context.Background())
+	next, err := store.nextDueAt(context.Background(), testOwnerID)
 	if err != nil {
 		t.Fatalf("nextDueAt: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestPostgresRecordReviewUpdatesTheScheduleOnce(t *testing.T) {
 
 	ids := createTestCards(t, store, pool, 1)
 
-	card, err := store.reviewCard(ctx, ids[0])
+	card, err := store.reviewCard(ctx, ids[0], testOwnerID)
 	if err != nil {
 		t.Fatalf("reviewCard: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestPostgresRecordReviewUpdatesTheScheduleOnce(t *testing.T) {
 		t.Fatalf("recordReview: %v", err)
 	}
 
-	updated, err := store.reviewCard(ctx, ids[0])
+	updated, err := store.reviewCard(ctx, ids[0], testOwnerID)
 	if err != nil {
 		t.Fatalf("reviewCard after review: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestPostgresRecordReviewUpdatesTheScheduleOnce(t *testing.T) {
 		t.Fatalf("reviews = %d, want 1", reviews)
 	}
 
-	if _, err := store.reviewCard(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, errCardNotFound) {
+	if _, err := store.reviewCard(ctx, "00000000-0000-0000-0000-000000000000", testOwnerID); !errors.Is(err, errCardNotFound) {
 		t.Fatalf("unknown card error = %v, want %v", err, errCardNotFound)
 	}
 }
@@ -255,7 +255,7 @@ func TestPostgresRecordReviewAcceptsOneOfTwoConcurrentSubmissions(t *testing.T) 
 	ctx := context.Background()
 
 	ids := createTestCards(t, store, pool, 1)
-	card, err := store.reviewCard(ctx, ids[0])
+	card, err := store.reviewCard(ctx, ids[0], testOwnerID)
 	if err != nil {
 		t.Fatalf("reviewCard: %v", err)
 	}
