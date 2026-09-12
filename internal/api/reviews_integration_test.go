@@ -23,7 +23,7 @@ func createTestCards(t *testing.T, store *PostgresStore, pool *pgxpool.Pool, cou
 		words[index] = fmt.Sprintf("w%d", index)
 	}
 	id := createTestDocument(t, store, pool, newDocument{Title: "Review fixture", SourceType: sourceText, Content: strings.Join(words, " ")})
-	cardJobID := queuedCardJob(t, store, pool, id)
+	cardJobID := claimedCardJob(t, store, pool, id)
 
 	chunks, err := store.documentChunks(ctx, id)
 	if err != nil {

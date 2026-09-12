@@ -60,6 +60,8 @@ func cardsStatus(state *string) string {
 
 var errNoIngestionJob = errors.New("no ingestion job available")
 
+var errJobNoLongerHeld = errors.New("ingestion job is no longer held by this worker")
+
 type ingestionJob struct {
 	ID         string
 	DocumentID string

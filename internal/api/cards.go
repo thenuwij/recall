@@ -178,10 +178,14 @@ func (s *PostgresStore) completeCardJob(ctx context.Context, jobID string, cards
 		    claimed_until = NULL,
 		    last_error = NULL,
 		    updated_at = now()
-		WHERE id = $1
+		WHERE id = $1 AND state = $3
 	`
-	if _, err := transaction.Exec(ctx, completeQuery, jobID, jobCompleted); err != nil {
+	result, err := transaction.Exec(ctx, completeQuery, jobID, jobCompleted, jobProcessing)
+	if err != nil {
 		return err
+	}
+	if result.RowsAffected() == 0 {
+		return errJobNoLongerHeld
 	}
 
 	return transaction.Commit(ctx)

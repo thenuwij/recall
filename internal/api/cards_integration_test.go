@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func queuedCardJob(t *testing.T, store *PostgresStore, pool *pgxpool.Pool, documentID string) string {
+func claimedCardJob(t *testing.T, store *PostgresStore, pool *pgxpool.Pool, documentID string) string {
 	t.Helper()
 	ctx := context.Background()
 
@@ -31,6 +31,10 @@ func queuedCardJob(t *testing.T, store *PostgresStore, pool *pgxpool.Pool, docum
 		t.Fatalf("read card job: %v", err)
 	}
 
+	if _, err := store.claimIngestionJob(ctx, time.Minute); err != nil {
+		t.Fatalf("claim card job: %v", err)
+	}
+
 	return cardJobID
 }
 
@@ -51,7 +55,7 @@ func TestPostgresCompleteCardJobStoresCardsWithSchedules(t *testing.T) {
 	ctx := context.Background()
 
 	id := createTestDocument(t, store, pool, newDocument{SourceType: sourceText, Content: "one two three four five six seven"})
-	cardJobID := queuedCardJob(t, store, pool, id)
+	cardJobID := claimedCardJob(t, store, pool, id)
 
 	chunks, err := store.documentChunks(ctx, id)
 	if err != nil {
@@ -119,7 +123,7 @@ func TestPostgresCompleteCardJobIsAtomic(t *testing.T) {
 	ctx := context.Background()
 
 	id := createTestDocument(t, store, pool, newDocument{SourceType: sourceText, Content: "one two three"})
-	cardJobID := queuedCardJob(t, store, pool, id)
+	cardJobID := claimedCardJob(t, store, pool, id)
 
 	chunks, err := store.documentChunks(ctx, id)
 	if err != nil {
@@ -155,7 +159,7 @@ func TestPostgresDeleteDocumentCascadesToCards(t *testing.T) {
 	ctx := context.Background()
 
 	id := createTestDocument(t, store, pool, newDocument{SourceType: sourceText, Content: "one two three"})
-	cardJobID := queuedCardJob(t, store, pool, id)
+	cardJobID := claimedCardJob(t, store, pool, id)
 
 	chunks, err := store.documentChunks(ctx, id)
 	if err != nil {
