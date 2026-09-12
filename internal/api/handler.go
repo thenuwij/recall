@@ -33,7 +33,7 @@ type documentStore interface {
 	chunkLocation(ctx context.Context, chunkID, userID string) (chunkLocation, error)
 	searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int, userID string) ([]searchResult, error)
 	dueCards(ctx context.Context, limit, newCardCap int, userID string) ([]dueCard, error)
-	nextDueAt(ctx context.Context, userID string) (*time.Time, error)
+	nextDueAt(ctx context.Context, userID string, newCardCap int) (*time.Time, error)
 	reviewCard(ctx context.Context, cardID, userID string) (reviewCard, error)
 	recordReview(ctx context.Context, review newReview) error
 	countDocuments(ctx context.Context, userID string) (int, error)

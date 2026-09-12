@@ -157,3 +157,50 @@ func TestPostgresRenewIngestionJobRefusesAJobItNoLongerHolds(t *testing.T) {
 		t.Fatalf("error = %v, want %v", err, errJobNoLongerHeld)
 	}
 }
+
+func TestPostgresNextDueAtReportsWhenCappedCardsUnlock(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+
+	id := createTestDocument(t, store, pool, newDocument{Title: "Capped", SourceType: sourceText, Content: "one two three four five six seven eight"})
+	jobID := claimedCardJob(t, store, pool, id)
+
+	chunkID := firstChunkID(t, pool, id)
+	cards := []newCard{
+		{ChunkID: chunkID, Question: "Reviewed?", ExpectedAnswer: "Yes."},
+		{ChunkID: chunkID, Question: "Waiting?", ExpectedAnswer: "Yes."},
+	}
+	if err := store.completeCardJob(ctx, jobID, cards); err != nil {
+		t.Fatalf("store cards: %v", err)
+	}
+
+	var reviewedCardID string
+	if err := pool.QueryRow(ctx,
+		`SELECT k.id::text FROM cards k JOIN document_chunks c ON c.id = k.chunk_id
+		 WHERE c.document_id = $1 AND k.question = 'Reviewed?'`, id,
+	).Scan(&reviewedCardID); err != nil {
+		t.Fatalf("read card: %v", err)
+	}
+
+	firstReviewedAt := time.Now().Add(-2 * time.Hour)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO reviews (card_id, user_answer, grade, reviewed_at) VALUES ($1, 'an answer', 4, $2)`,
+		reviewedCardID, firstReviewedAt,
+	); err != nil {
+		t.Fatalf("record review: %v", err)
+	}
+
+	next, err := store.nextDueAt(ctx, testOwnerID, 1)
+	if err != nil {
+		t.Fatalf("nextDueAt: %v", err)
+	}
+	if next == nil {
+		t.Fatal("next_due_at is nil, but a new card is waiting behind the daily cap")
+	}
+
+	want := firstReviewedAt.Add(24 * time.Hour)
+	if next.Sub(want) > time.Minute || want.Sub(*next) > time.Minute {
+		t.Fatalf("next_due_at = %v, want about %v (when the cap frees a slot)", next, want)
+	}
+}

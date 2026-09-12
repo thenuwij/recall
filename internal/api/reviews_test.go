@@ -44,7 +44,7 @@ func (s *memoryStore) dueCards(_ context.Context, limit, newCardCap int, _ strin
 	return s.due, nil
 }
 
-func (s *memoryStore) nextDueAt(_ context.Context, _ string) (*time.Time, error) {
+func (s *memoryStore) nextDueAt(_ context.Context, _ string, _ int) (*time.Time, error) {
 	if s.err != nil {
 		return nil, s.err
 	}

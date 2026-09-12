@@ -126,7 +126,7 @@ func TestPostgresDueCardsOrdersReviewsBeforeNewCards(t *testing.T) {
 	if err := pool.QueryRow(context.Background(), `SELECT due_at FROM card_schedule WHERE card_id = $1`, ids[3]).Scan(&futureDue); err != nil {
 		t.Fatalf("read due_at: %v", err)
 	}
-	next, err := store.nextDueAt(context.Background(), testOwnerID)
+	next, err := store.nextDueAt(context.Background(), testOwnerID, newCardsPerDay)
 	if err != nil {
 		t.Fatalf("nextDueAt: %v", err)
 	}

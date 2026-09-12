@@ -110,7 +110,7 @@ func (h *handler) dueReviews(w http.ResponseWriter, r *http.Request) {
 		cards = make([]dueCard, 0)
 	}
 
-	nextDueAt, err := h.store.nextDueAt(r.Context(), account.ID)
+	nextDueAt, err := h.store.nextDueAt(r.Context(), account.ID, newCardsPerDay)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not load due cards"})
 		return
@@ -301,18 +301,48 @@ func (s *PostgresStore) queryDueCards(ctx context.Context, query string, limit i
 	return cards, nil
 }
 
-func (s *PostgresStore) nextDueAt(ctx context.Context, userID string) (*time.Time, error) {
+func (s *PostgresStore) nextDueAt(ctx context.Context, userID string, newCardCap int) (*time.Time, error) {
 	const query = `
-		SELECT min(s.due_at)
-		FROM card_schedule s
-		JOIN cards k ON k.id = s.card_id
-		JOIN document_chunks c ON c.id = k.chunk_id
-		JOIN documents d ON d.id = c.document_id
-		WHERE s.due_at > now() AND d.user_id = $1
+		WITH introduced AS (
+			SELECT min(r.reviewed_at) AS first_reviewed_at
+			FROM reviews r
+			JOIN cards k ON k.id = r.card_id
+			JOIN document_chunks c ON c.id = k.chunk_id
+			JOIN documents d ON d.id = c.document_id
+			WHERE d.user_id = $1
+			GROUP BY r.card_id
+			HAVING min(r.reviewed_at) > now() - interval '24 hours'
+		),
+		scheduled AS (
+			SELECT min(s.due_at) AS due_at
+			FROM card_schedule s
+			JOIN cards k ON k.id = s.card_id
+			JOIN document_chunks c ON c.id = k.chunk_id
+			JOIN documents d ON d.id = c.document_id
+			WHERE s.due_at > now() AND d.user_id = $1
+		),
+		withheld AS (
+			SELECT count(*) AS waiting
+			FROM card_schedule s
+			JOIN cards k ON k.id = s.card_id
+			JOIN document_chunks c ON c.id = k.chunk_id
+			JOIN documents d ON d.id = c.document_id
+			WHERE d.user_id = $1
+			    AND s.due_at <= now()
+			    AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r.card_id = k.id)
+		)
+		SELECT least(
+			(SELECT due_at FROM scheduled),
+			CASE
+				WHEN (SELECT waiting FROM withheld) > 0
+					AND (SELECT count(*) FROM introduced) >= $2
+				THEN (SELECT min(first_reviewed_at) FROM introduced) + interval '24 hours'
+			END
+		)
 	`
 
 	var next *time.Time
-	if err := s.pool.QueryRow(ctx, query, userID).Scan(&next); err != nil {
+	if err := s.pool.QueryRow(ctx, query, userID, newCardCap).Scan(&next); err != nil {
 		return nil, err
 	}
 
