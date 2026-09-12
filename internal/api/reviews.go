@@ -167,15 +167,21 @@ func (h *handler) submitReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	gradingStarted := time.Now()
 	grade, err := h.generator.GradeAnswer(r.Context(), card.Question, card.ExpectedAnswer, card.Passage, answer)
+	gradingDuration := time.Since(gradingStarted).Milliseconds()
 	if errors.Is(err, generation.ErrInvalidGrade) {
+		h.log(r.Context()).Error("grading rejected", "card_id", cardID, "duration_ms", gradingDuration, "error", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "grader returned an invalid grade"})
 		return
 	}
 	if err != nil {
+		h.log(r.Context()).Error("grading failed", "card_id", cardID, "duration_ms", gradingDuration, "error", err)
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "could not grade the answer"})
 		return
 	}
+
+	h.log(r.Context()).Info("answer graded", "card_id", cardID, "score", grade.Score, "duration_ms", gradingDuration)
 
 	schedule, dueAt := scheduling.Next(card.Schedule, grade.Score, time.Now())
 
@@ -188,6 +194,7 @@ func (h *handler) submitReview(w http.ResponseWriter, r *http.Request) {
 		PreviousUpdatedAt: card.UpdatedAt,
 	})
 	if errors.Is(err, errReviewConflict) {
+		h.log(r.Context()).Warn("review conflict", "card_id", cardID)
 		writeJSON(w, http.StatusConflict, errorResponse{Error: "this card was already answered; reload the review queue"})
 		return
 	}

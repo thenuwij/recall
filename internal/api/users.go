@@ -91,7 +91,7 @@ func (h *handler) register(w http.ResponseWriter, r *http.Request) {
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(request.Password), bcrypt.DefaultCost)
 	if err != nil {
-		h.logger.Printf("auth: hash password: %v", err)
+		h.log(r.Context()).Error("hash password", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not create the account"})
 		return
 	}
@@ -102,7 +102,7 @@ func (h *handler) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.logger.Printf("auth: create user: %v", err)
+		h.log(r.Context()).Error("create user", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not create the account"})
 		return
 	}
@@ -131,7 +131,7 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.logger.Printf("auth: look up user: %v", err)
+		h.log(r.Context()).Error("look up user", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not sign in"})
 		return
 	}
@@ -147,14 +147,14 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) {
 func (h *handler) startSession(w http.ResponseWriter, r *http.Request, account user) {
 	token, err := newSessionToken()
 	if err != nil {
-		h.logger.Printf("auth: generate session token: %v", err)
+		h.log(r.Context()).Error("generate session token", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not start a session"})
 		return
 	}
 
 	expiresAt := time.Now().Add(sessionLifetime)
 	if err := h.store.createSession(r.Context(), token, account.ID, expiresAt); err != nil {
-		h.logger.Printf("auth: create session: %v", err)
+		h.log(r.Context()).Error("create session", "error", err)
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not start a session"})
 		return
 	}
@@ -176,7 +176,7 @@ func (h *handler) logout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err == nil {
 		if err := h.store.deleteSession(r.Context(), cookie.Value); err != nil {
-			h.logger.Printf("auth: delete session: %v", err)
+			h.log(r.Context()).Error("delete session", "error", err)
 		}
 	}
 
@@ -216,7 +216,7 @@ func (h *handler) requireUser(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			h.logger.Printf("auth: look up session: %v", err)
+			h.log(r.Context()).Error("look up session", "error", err)
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not verify the session"})
 			return
 		}

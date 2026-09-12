@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -64,7 +64,7 @@ type handler struct {
 	publisher jobPublisher
 	extractor textExtractor
 	splitter  chunking.WordSplitter
-	logger    *log.Logger
+	logger    *slog.Logger
 }
 
 type submitDocumentRequest struct {
@@ -112,7 +112,7 @@ func NewHandler(store documentStore, embedder embeddingGenerator, generator answ
 		panic(err)
 	}
 
-	h := &handler{store: store, embedder: embedder, generator: generator, publisher: publisher, extractor: extractor, splitter: splitter, logger: log.Default()}
+	h := &handler{store: store, embedder: embedder, generator: generator, publisher: publisher, extractor: extractor, splitter: splitter, logger: slog.Default()}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.health)
@@ -131,7 +131,8 @@ func NewHandler(store documentStore, embedder embeddingGenerator, generator answ
 	mux.HandleFunc("GET /reviews/due", h.requireUser(h.dueReviews))
 	mux.HandleFunc("POST /reviews/{card_id}", h.requireUser(h.submitReview))
 	mux.Handle("GET /", web.Handler())
-	return mux
+
+	return h.logRequests(mux)
 }
 
 func (h *handler) health(w http.ResponseWriter, _ *http.Request) {
@@ -195,7 +196,7 @@ func (h *handler) notify(ctx context.Context, jobID string) {
 	}
 
 	if err := h.publisher.Publish(ctx, jobID); err != nil && h.logger != nil {
-		h.logger.Printf("ingestion: publish job=%s: %v", jobID, err)
+		h.log(ctx).Error("publish job", "job_id", jobID, "error", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,7 +16,18 @@ import (
 	"github.com/thenujawijesuriya/recall/internal/queue"
 )
 
+func configureLogging() {
+	level := slog.LevelInfo
+	if err := level.UnmarshalText([]byte(os.Getenv("LOG_LEVEL"))); err != nil {
+		level = slog.LevelInfo
+	}
+
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+}
+
 func main() {
+	configureLogging()
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		log.Fatal("DATABASE_URL must be set")
@@ -62,9 +74,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	log.Print("Recall ingestion worker started")
+	slog.Info("worker started")
 	if err := api.NewWorker(api.NewPostgresStore(pool), embeddingClient, generationClient, notifier).Run(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("ingestion worker: %v", err)
 	}
-	log.Print("Recall ingestion worker stopped")
+	slog.Info("worker stopped")
 }

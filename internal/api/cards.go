@@ -89,8 +89,15 @@ func (w *Worker) processCards(ctx context.Context, job ingestionJob, started tim
 		return w.fail(ctx, job, fmt.Sprintf("store cards: %v", err), false)
 	}
 
-	w.logf("completed job=%s kind=%s document=%s chunks=%d generated=%d kept=%d duration=%s",
-		job.ID, job.Kind, job.DocumentID, len(chunks), len(generated), len(kept), time.Since(started).Round(time.Millisecond))
+	w.log().Info("job completed",
+		"job_id", job.ID,
+		"kind", job.Kind,
+		"document_id", job.DocumentID,
+		"chunks", len(chunks),
+		"cards_generated", len(generated),
+		"cards_kept", len(kept),
+		"duration_ms", time.Since(started).Milliseconds(),
+	)
 	return nil
 }
 

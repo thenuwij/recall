@@ -156,7 +156,7 @@ func (h *handler) writeExtractionError(w http.ResponseWriter, ctx context.Contex
 		writeJSON(w, http.StatusGatewayTimeout, errorResponse{Error: err.Error()})
 	default:
 		if h.logger != nil {
-			h.logger.Printf("upload: extract pdf: %v", err)
+			h.log(ctx).Error("extract pdf", "error", err)
 		}
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not extract text from PDF"})
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/thenujawijesuriya/recall/internal/embedding"
@@ -39,7 +39,7 @@ type Worker struct {
 	notifier  jobNotifier
 	lease     time.Duration
 	poll      time.Duration
-	logger    *log.Logger
+	logger    *slog.Logger
 }
 
 func NewWorker(store *PostgresStore, embedder embeddingGenerator, generator cardGenerator, notifier jobNotifier) *Worker {
@@ -50,23 +50,23 @@ func NewWorker(store *PostgresStore, embedder embeddingGenerator, generator card
 		notifier:  notifier,
 		lease:     defaultJobLease,
 		poll:      defaultPollInterval,
-		logger:    log.Default(),
+		logger:    slog.Default(),
 	}
 }
 
-func (w *Worker) logf(format string, args ...any) {
+func (w *Worker) log() *slog.Logger {
 	if w.logger == nil {
-		return
+		return slog.New(slog.DiscardHandler)
 	}
 
-	w.logger.Printf("ingestion: "+format, args...)
+	return w.logger
 }
 
 func (w *Worker) Run(ctx context.Context) error {
 	for {
 		worked, err := w.ProcessOne(ctx)
 		if err != nil && !errors.Is(err, context.Canceled) {
-			w.logf("%v", err)
+			w.log().Error("process job", "error", err)
 		}
 
 		if worked && ctx.Err() == nil {
@@ -95,7 +95,7 @@ func (w *Worker) waitForWork(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		w.logf("receive notification: %v", err)
+		w.log().Error("receive notification", "error", err)
 
 		select {
 		case <-ctx.Done():
@@ -113,17 +113,17 @@ func (w *Worker) waitForWork(ctx context.Context) error {
 
 		worked, err := w.ProcessOne(ctx)
 		if err != nil && !errors.Is(err, context.Canceled) {
-			w.logf("%v", err)
+			w.log().Error("process notified job", "error", err)
 		}
 		if err != nil {
 			continue
 		}
 		if !worked {
-			w.logf("notified job=%s but the queue was empty", message.JobID)
+			w.log().Warn("notified job was not in the queue", "job_id", message.JobID)
 		}
 
 		if err := w.notifier.Ack(ctx, message.ID); err != nil {
-			w.logf("acknowledge notification=%s: %v", message.ID, err)
+			w.log().Error("acknowledge notification", "notification_id", message.ID, "error", err)
 		}
 	}
 
@@ -140,7 +140,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	}
 
 	started := time.Now()
-	w.logf("claimed job=%s kind=%s document=%s attempt=%d", job.ID, job.Kind, job.DocumentID, job.Attempts)
+	w.log().Info("job claimed", "job_id", job.ID, "kind", job.Kind, "document_id", job.DocumentID, "attempt", job.Attempts)
 
 	if job.Kind == jobKindCards {
 		return true, w.processCards(ctx, job, started)
@@ -152,11 +152,11 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	}
 
 	if len(pending) == 0 {
-		w.logf("nothing to embed job=%s document=%s", job.ID, job.DocumentID)
+		w.log().Info("nothing to embed", "job_id", job.ID, "document_id", job.DocumentID)
 		return true, w.store.completeIngestionJob(ctx, job.ID, nil, embedding.Model)
 	}
 
-	w.logf("embedding job=%s chunks=%d", job.ID, len(pending))
+	w.log().Info("embedding chunks", "job_id", job.ID, "chunks", len(pending))
 
 	inputs := make([]string, len(pending))
 	for index, chunk := range pending {
@@ -183,7 +183,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		return true, w.fail(ctx, job, fmt.Sprintf("store embeddings: %v", err), false)
 	}
 
-	w.logf("completed job=%s document=%s chunks=%d duration=%s", job.ID, job.DocumentID, len(embedded), time.Since(started).Round(time.Millisecond))
+	w.log().Info("job completed", "job_id", job.ID, "kind", job.Kind, "document_id", job.DocumentID, "chunks", len(embedded), "duration_ms", time.Since(started).Milliseconds())
 	return true, nil
 }
 
@@ -194,8 +194,16 @@ func (w *Worker) fail(ctx context.Context, job ingestionJob, reason string, perm
 
 	backoff := retryBackoff(job.Attempts)
 	terminal := permanent || job.Attempts >= maxIngestionAttempts
-	w.logf("failed job=%s document=%s attempt=%d permanent=%t terminal=%t backoff=%s reason=%q",
-		job.ID, job.DocumentID, job.Attempts, permanent, terminal, backoff, reason)
+	w.log().Error("job failed",
+		"job_id", job.ID,
+		"kind", job.Kind,
+		"document_id", job.DocumentID,
+		"attempt", job.Attempts,
+		"permanent", permanent,
+		"terminal", terminal,
+		"backoff_ms", backoff.Milliseconds(),
+		"reason", reason,
+	)
 
 	if err := w.store.failIngestionJob(ctx, job, reason, permanent, backoff); err != nil {
 		return fmt.Errorf("record job failure: %w", err)

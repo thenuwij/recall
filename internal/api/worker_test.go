@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -244,7 +244,7 @@ func TestWorkerLogsJobLifecycle(t *testing.T) {
 		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
 	}
 	worker := newTestWorker(store, &fakeEmbedder{})
-	worker.logger = log.New(&buffer, "", 0)
+	worker.logger = slog.New(slog.NewJSONHandler(&buffer, nil))
 
 	if _, err := worker.ProcessOne(context.Background()); err != nil {
 		t.Fatalf("ProcessOne: %v", err)
@@ -252,9 +252,14 @@ func TestWorkerLogsJobLifecycle(t *testing.T) {
 
 	output := buffer.String()
 	for _, want := range []string{
-		"claimed job=job-1 kind=embed document=document-1 attempt=1",
-		"embedding job=job-1 chunks=1",
-		"completed job=job-1 document=document-1 chunks=1",
+		`"msg":"job claimed"`,
+		`"job_id":"job-1"`,
+		`"kind":"embed"`,
+		`"document_id":"document-1"`,
+		`"attempt":1`,
+		`"msg":"embedding chunks"`,
+		`"chunks":1`,
+		`"msg":"job completed"`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("log missing %q; got:\n%s", want, output)
@@ -269,14 +274,14 @@ func TestWorkerLogsFailureWithItsClassification(t *testing.T) {
 		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
 	}
 	worker := newTestWorker(store, &fakeEmbedder{err: errors.New("provider unavailable")})
-	worker.logger = log.New(&buffer, "", 0)
+	worker.logger = slog.New(slog.NewJSONHandler(&buffer, nil))
 
 	if _, err := worker.ProcessOne(context.Background()); err == nil {
 		t.Fatal("ProcessOne() error = nil, want the provider failure reported")
 	}
 
 	output := buffer.String()
-	for _, want := range []string{"failed job=job-1", "permanent=false", "terminal=false", "provider unavailable"} {
+	for _, want := range []string{`"msg":"job failed"`, `"job_id":"job-1"`, `"permanent":false`, `"terminal":false`, "provider unavailable"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("log missing %q; got:\n%s", want, output)
 		}
