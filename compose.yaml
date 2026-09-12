@@ -28,6 +28,39 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    build:
+      context: .
+      target: api
+    ports:
+      - "8090:8080"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://recall:recall@postgres:5432/recall?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      target: worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://recall:recall@postgres:5432/recall?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   recall_postgres_data:
   recall_redis_data:
