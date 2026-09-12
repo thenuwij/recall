@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 )
 
 type fakeIngestionStore struct {
+	mu          sync.Mutex
 	job         ingestionJob
 	claimErr    error
 	pending     []pendingChunk
@@ -27,6 +29,23 @@ type fakeIngestionStore struct {
 	completeID string
 	cards      []newCard
 	failures   []recordedFailure
+	renewals   int
+}
+
+func (s *fakeIngestionStore) renewIngestionJob(_ context.Context, _ string, _ time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.renewals++
+
+	return nil
+}
+
+func (s *fakeIngestionStore) renewalCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.renewals
 }
 
 type recordedFailure struct {
@@ -36,11 +55,21 @@ type recordedFailure struct {
 }
 
 func (s *fakeIngestionStore) claimIngestionJob(_ context.Context, _ time.Duration) (ingestionJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.claims++
 	if s.claimErr != nil {
 		return ingestionJob{}, s.claimErr
 	}
 	return s.job, nil
+}
+
+func (s *fakeIngestionStore) claimCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.claims
 }
 
 func (s *fakeIngestionStore) chunksAwaitingEmbedding(_ context.Context, _ string) ([]pendingChunk, error) {
@@ -226,7 +255,7 @@ func TestWorkerRunStopsOnContextCancellation(t *testing.T) {
 	if err := newTestWorker(store, &fakeEmbedder{}).Run(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Run() error = %v, want context.DeadlineExceeded", err)
 	}
-	if store.claims == 0 {
+	if store.claimCount() == 0 {
 		t.Error("claims = 0, want the loop to have polled at least once")
 	}
 }

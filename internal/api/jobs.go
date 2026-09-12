@@ -217,3 +217,22 @@ func (s *PostgresStore) failIngestionJob(ctx context.Context, job ingestionJob, 
 	_, err := s.pool.Exec(ctx, requeueQuery, job.ID, jobQueued, backoff.Seconds(), reason)
 	return err
 }
+
+func (s *PostgresStore) renewIngestionJob(ctx context.Context, jobID string, lease time.Duration) error {
+	const query = `
+		UPDATE ingestion_jobs
+		SET claimed_until = now() + make_interval(secs => $2),
+		    updated_at = now()
+		WHERE id = $1 AND state = $3
+	`
+
+	result, err := s.pool.Exec(ctx, query, jobID, lease.Seconds(), jobProcessing)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return errJobNoLongerHeld
+	}
+
+	return nil
+}

@@ -108,3 +108,52 @@ func firstChunkID(t *testing.T, pool *pgxpool.Pool, documentID string) string {
 
 	return id
 }
+
+func TestPostgresRenewIngestionJobExtendsTheLease(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+
+	createTestDocument(t, store, pool, newDocument{Title: "Renew", SourceType: sourceText, Content: "one two three four"})
+
+	job, err := store.claimIngestionJob(ctx, 30*time.Second)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	var before time.Time
+	if err := pool.QueryRow(ctx, `SELECT claimed_until FROM ingestion_jobs WHERE id = $1`, job.ID).Scan(&before); err != nil {
+		t.Fatalf("read lease: %v", err)
+	}
+
+	if err := store.renewIngestionJob(ctx, job.ID, 5*time.Minute); err != nil {
+		t.Fatalf("renew: %v", err)
+	}
+
+	var after time.Time
+	if err := pool.QueryRow(ctx, `SELECT claimed_until FROM ingestion_jobs WHERE id = $1`, job.ID).Scan(&after); err != nil {
+		t.Fatalf("read lease: %v", err)
+	}
+	if !after.After(before) {
+		t.Fatalf("claimed_until %v did not move past %v", after, before)
+	}
+}
+
+func TestPostgresRenewIngestionJobRefusesAJobItNoLongerHolds(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+
+	id := createTestDocument(t, store, pool, newDocument{Title: "Lost", SourceType: sourceText, Content: "one two three four"})
+	jobID := claimedCardJob(t, store, pool, id)
+
+	if err := store.completeCardJob(ctx, jobID, nil); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	err := store.renewIngestionJob(ctx, jobID, time.Minute)
+
+	if !errors.Is(err, errJobNoLongerHeld) {
+		t.Fatalf("error = %v, want %v", err, errJobNoLongerHeld)
+	}
+}

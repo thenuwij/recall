@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/thenujawijesuriya/recall/internal/embedding"
@@ -14,8 +15,9 @@ import (
 
 const (
 	defaultJobLease     = 2 * time.Minute
-	defaultPollInterval = 30 * time.Second
+	defaultPollInterval = 2 * time.Second
 	notifyBatchSize     = 16
+	defaultWorkers      = 2
 )
 
 type ingestionStore interface {
@@ -25,6 +27,7 @@ type ingestionStore interface {
 	failIngestionJob(ctx context.Context, job ingestionJob, reason string, permanent bool, backoff time.Duration) error
 	documentChunks(ctx context.Context, documentID string) ([]pendingChunk, error)
 	completeCardJob(ctx context.Context, jobID string, cards []newCard) error
+	renewIngestionJob(ctx context.Context, jobID string, lease time.Duration) error
 }
 
 type jobNotifier interface {
@@ -60,6 +63,59 @@ func (w *Worker) log() *slog.Logger {
 	}
 
 	return w.logger
+}
+
+func (w *Worker) RunPool(ctx context.Context, workers int) error {
+	if workers < 1 {
+		workers = 1
+	}
+
+	w.log().Info("worker pool started", "workers", workers, "lease_seconds", int(w.lease.Seconds()))
+
+	var group sync.WaitGroup
+	for index := range workers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if err := w.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				w.log().Error("worker loop stopped", "worker", index, "error", err)
+			}
+		}()
+	}
+	group.Wait()
+
+	return ctx.Err()
+}
+
+func (w *Worker) keepLeaseAlive(ctx context.Context, jobID string) func() {
+	renewalContext, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(w.lease / 3)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-renewalContext.Done():
+				return
+			case <-ticker.C:
+				if err := w.store.renewIngestionJob(renewalContext, jobID, w.lease); err != nil {
+					if renewalContext.Err() == nil {
+						w.log().Error("renew lease", "job_id", jobID, "error", err)
+					}
+					return
+				}
+				w.log().Debug("lease renewed", "job_id", jobID)
+			}
+		}
+	}()
+
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -141,6 +197,9 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 
 	started := time.Now()
 	w.log().Info("job claimed", "job_id", job.ID, "kind", job.Kind, "document_id", job.DocumentID, "attempt", job.Attempts)
+
+	stopRenewal := w.keepLeaseAlive(ctx, job.ID)
+	defer stopRenewal()
 
 	if job.Kind == jobKindCards {
 		return true, w.processCards(ctx, job, started)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -17,6 +18,21 @@ import (
 	"github.com/thenujawijesuriya/recall/internal/generation"
 	"github.com/thenujawijesuriya/recall/internal/queue"
 )
+
+func workerCount() int {
+	value := os.Getenv("WORKER_CONCURRENCY")
+	if value == "" {
+		return 2
+	}
+
+	count, err := strconv.Atoi(value)
+	if err != nil || count < 1 {
+		slog.Warn("ignoring invalid WORKER_CONCURRENCY", "value", value)
+		return 2
+	}
+
+	return count
+}
 
 func healthAddress() string {
 	port := os.Getenv("WORKER_HEALTH_PORT")
@@ -104,7 +120,8 @@ func main() {
 	}()
 
 	slog.Info("worker started", "health_address", health.Addr)
-	if err := api.NewWorker(api.NewPostgresStore(pool), embeddingClient, generationClient, notifier).Run(ctx); err != nil && ctx.Err() == nil {
+	worker := api.NewWorker(api.NewPostgresStore(pool), embeddingClient, generationClient, notifier)
+	if err := worker.RunPool(ctx, workerCount()); err != nil && ctx.Err() == nil {
 		log.Fatalf("ingestion worker: %v", err)
 	}
 	slog.Info("worker stopped")
