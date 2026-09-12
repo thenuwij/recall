@@ -1,4 +1,4 @@
-import { api, el, showMessage } from "/app.js";
+import { mountAccount, api, el, showMessage } from "/app.js";
 
 const form = document.getElementById("upload");
 const fileInput = document.getElementById("file");
@@ -111,3 +111,5 @@ form.addEventListener("submit", async (event) => {
 });
 
 loadDocuments();
+
+mountAccount();

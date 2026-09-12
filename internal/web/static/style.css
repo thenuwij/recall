@@ -37,7 +37,17 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body.centred {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
 }
 
 header {
@@ -47,11 +57,25 @@ header {
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+header .account {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 header .brand {
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+nav a:hover {
+  color: var(--text);
 }
 
 nav {
@@ -80,7 +104,9 @@ main {
 
 h1 {
   margin: 0 0 20px;
-  font-size: 24px;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 h2 {
@@ -290,4 +316,76 @@ p.row {
 
 .grade.high {
   color: var(--ok);
+}
+
+main.narrow {
+  width: 100%;
+  max-width: 380px;
+  padding: 0;
+}
+
+.mark {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.tagline {
+  margin: 6px 0 24px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  text-wrap: balance;
+}
+
+main.narrow h1 {
+  font-size: 19px;
+  margin-bottom: 18px;
+}
+
+label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+input[type="email"],
+input[type="password"] {
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+input[type="email"]:focus,
+input[type="password"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+main.narrow button[type="submit"] {
+  width: 100%;
+}
+
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+button.link:hover {
+  opacity: 0.8;
 }

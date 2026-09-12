@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Recall</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="centred">
+<main class="narrow">
+<div class="mark">Recall</div>
+<p class="tagline">Your own material, asked back on a forgetting curve.</p>
+<section class="panel">
+<h1 id="form-title">Sign in</h1>
+<p id="login-message" class="message" hidden></p>
+<form id="login-form">
+<label for="email">Email</label>
+<input id="email" type="email" autocomplete="email" required>
+<label for="password">Password</label>
+<input id="password" type="password" autocomplete="current-password" minlength="8" required>
+<p class="row"><button id="submit" type="submit">Sign in</button></p>
+</form>
+<p class="meta">
+<span id="switch-prompt">New here?</span>
+<button id="switch" class="link" type="button">Create an account</button>
+</p>
+</section>
+</main>
+<script type="module" src="/login.js"></script>
+</body>
+</html>

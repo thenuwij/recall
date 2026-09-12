@@ -1,5 +1,14 @@
 export async function api(path, options) {
-  const response = await fetch(path, options);
+  const settings = { ...options };
+  const allowUnauthorized = settings.allowUnauthorized === true;
+  delete settings.allowUnauthorized;
+
+  const response = await fetch(path, settings);
+  if (response.status === 401 && !allowUnauthorized) {
+    window.location.href = "/login.html";
+    throw new Error("Sign in to continue");
+  }
+
   let body = null;
   if (response.status !== 204) {
     body = await response.json().catch(() => null);
@@ -8,6 +17,25 @@ export async function api(path, options) {
     throw new Error(body && body.error ? body.error : `Request failed (${response.status})`);
   }
   return body;
+}
+
+export async function mountAccount() {
+  const container = document.getElementById("account");
+  if (!container) {
+    return null;
+  }
+
+  const account = await api("/auth/me");
+  const signOut = el("button", "link", "Sign out");
+  signOut.type = "button";
+  signOut.addEventListener("click", async () => {
+    await api("/auth/logout", { method: "POST", allowUnauthorized: true });
+    window.location.href = "/login.html";
+  });
+
+  container.replaceChildren(el("span", "meta", account.email), signOut);
+
+  return account;
 }
 
 export function el(tag, className, text) {

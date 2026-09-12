@@ -1,4 +1,4 @@
-import { api, el, showContext, showMessage, sourceLabel } from "/app.js";
+import { mountAccount, api, el, showContext, showMessage, sourceLabel } from "/app.js";
 
 const form = document.getElementById("ask");
 const question = document.getElementById("question");
@@ -69,3 +69,5 @@ function renderAnswer(answer) {
   result.replaceChildren(panel);
   result.hidden = false;
 }
+
+mountAccount();

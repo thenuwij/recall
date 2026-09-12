@@ -1,4 +1,4 @@
-import { api, el, renderPassage, showMessage, sourceLabel } from "/app.js";
+import { mountAccount, api, el, renderPassage, showMessage, sourceLabel } from "/app.js";
 
 const dueCount = document.getElementById("due-count");
 const message = document.getElementById("review-message");
@@ -158,3 +158,5 @@ nextButton.addEventListener("click", () => {
 });
 
 loadQueue();
+
+mountAccount();
