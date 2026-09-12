@@ -36,6 +36,11 @@ type documentStore interface {
 	nextDueAt(ctx context.Context) (*time.Time, error)
 	reviewCard(ctx context.Context, cardID string) (reviewCard, error)
 	recordReview(ctx context.Context, review newReview) error
+	createUser(ctx context.Context, email, passwordHash string) (user, error)
+	userByEmail(ctx context.Context, email string) (user, string, error)
+	createSession(ctx context.Context, token, userID string, expiresAt time.Time) error
+	userBySession(ctx context.Context, token string) (user, error)
+	deleteSession(ctx context.Context, token string) error
 }
 
 type embeddingGenerator interface {
@@ -109,6 +114,10 @@ func NewHandler(store documentStore, embedder embeddingGenerator, generator answ
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", h.health)
+	mux.HandleFunc("POST /auth/register", h.register)
+	mux.HandleFunc("POST /auth/login", h.login)
+	mux.HandleFunc("POST /auth/logout", h.logout)
+	mux.HandleFunc("GET /auth/me", h.requireUser(h.currentUser))
 	mux.HandleFunc("POST /documents", h.submitDocument)
 	mux.HandleFunc("POST /documents/upload", h.uploadDocument)
 	mux.HandleFunc("GET /documents", h.listDocuments)

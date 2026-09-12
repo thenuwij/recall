@@ -5,8 +5,10 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/thenujawijesuriya/recall/internal/chunking"
 )
@@ -252,4 +254,85 @@ func (s *PostgresStore) chunkLocation(ctx context.Context, chunkID string) (chun
 	}
 
 	return location, nil
+}
+
+func (s *PostgresStore) createUser(ctx context.Context, email, passwordHash string) (user, error) {
+	const query = `
+		INSERT INTO users (email, password_hash)
+		VALUES ($1, $2)
+		RETURNING id::text, email, max_documents, max_pages_per_document
+	`
+
+	var created user
+	err := s.pool.QueryRow(ctx, query, email, passwordHash).Scan(
+		&created.ID, &created.Email, &created.MaxDocuments, &created.MaxPagesPerDocument,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return user{}, errEmailTaken
+		}
+		return user{}, err
+	}
+
+	return created, nil
+}
+
+func (s *PostgresStore) userByEmail(ctx context.Context, email string) (user, string, error) {
+	const query = `
+		SELECT id::text, email, max_documents, max_pages_per_document, password_hash
+		FROM users
+		WHERE email = $1
+	`
+
+	var found user
+	var hash string
+	err := s.pool.QueryRow(ctx, query, email).Scan(
+		&found.ID, &found.Email, &found.MaxDocuments, &found.MaxPagesPerDocument, &hash,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return user{}, "", errUserNotFound
+	}
+	if err != nil {
+		return user{}, "", err
+	}
+
+	return found, hash, nil
+}
+
+func (s *PostgresStore) createSession(ctx context.Context, token, userID string, expiresAt time.Time) error {
+	const query = `
+		INSERT INTO sessions (token, user_id, expires_at)
+		VALUES ($1, $2, $3)
+	`
+
+	_, err := s.pool.Exec(ctx, query, token, userID, expiresAt)
+	return err
+}
+
+func (s *PostgresStore) userBySession(ctx context.Context, token string) (user, error) {
+	const query = `
+		SELECT users.id::text, users.email, users.max_documents, users.max_pages_per_document
+		FROM sessions
+		JOIN users ON users.id = sessions.user_id
+		WHERE sessions.token = $1 AND sessions.expires_at > now()
+	`
+
+	var found user
+	err := s.pool.QueryRow(ctx, query, token).Scan(
+		&found.ID, &found.Email, &found.MaxDocuments, &found.MaxPagesPerDocument,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return user{}, errSessionNotFound
+	}
+	if err != nil {
+		return user{}, err
+	}
+
+	return found, nil
+}
+
+func (s *PostgresStore) deleteSession(ctx context.Context, token string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token = $1`, token)
+	return err
 }

@@ -34,6 +34,11 @@ type memoryStore struct {
 	reviewCards map[string]reviewCard
 	reviews     []newReview
 	reviewErr   error
+
+	users      map[string]user
+	hashes     map[string]string
+	sessions   map[string]string
+	sessionErr error
 }
 
 type searchCall struct {
@@ -48,7 +53,76 @@ func newMemoryStore() *memoryStore {
 		chunks:      make(map[string][]chunking.Chunk),
 		locations:   make(map[string]chunkLocation),
 		reviewCards: make(map[string]reviewCard),
+		users:       make(map[string]user),
+		hashes:      make(map[string]string),
+		sessions:    make(map[string]string),
 	}
+}
+
+func (s *memoryStore) createUser(ctx context.Context, email, passwordHash string) (user, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.users[email]; exists {
+		return user{}, errEmailTaken
+	}
+
+	created := user{ID: "user-" + email, Email: email}
+	s.users[email] = created
+	s.hashes[email] = passwordHash
+
+	return created, nil
+}
+
+func (s *memoryStore) userByEmail(ctx context.Context, email string) (user, string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	found, exists := s.users[email]
+	if !exists {
+		return user{}, "", errUserNotFound
+	}
+
+	return found, s.hashes[email], nil
+}
+
+func (s *memoryStore) createSession(ctx context.Context, token, userID string, expiresAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.sessionErr != nil {
+		return s.sessionErr
+	}
+	s.sessions[token] = userID
+
+	return nil
+}
+
+func (s *memoryStore) userBySession(ctx context.Context, token string) (user, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	userID, exists := s.sessions[token]
+	if !exists {
+		return user{}, errSessionNotFound
+	}
+
+	for _, candidate := range s.users {
+		if candidate.ID == userID {
+			return candidate, nil
+		}
+	}
+
+	return user{}, errSessionNotFound
+}
+
+func (s *memoryStore) deleteSession(ctx context.Context, token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.sessions, token)
+
+	return nil
 }
 
 func (s *memoryStore) createDocument(_ context.Context, doc newDocument, chunks []chunking.Chunk) (string, string, error) {
