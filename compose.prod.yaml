@@ -1,0 +1,35 @@
+services:
+  postgres:
+    restart: unless-stopped
+    ports: !override []
+
+  redis:
+    restart: unless-stopped
+    ports: !override []
+
+  api:
+    restart: unless-stopped
+    ports: !override []
+
+  worker:
+    restart: unless-stopped
+    stop_grace_period: 40s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      RECALL_DOMAIN: ${RECALL_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  caddy_data:
+  caddy_config:

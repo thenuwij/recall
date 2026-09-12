@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +17,15 @@ import (
 	"github.com/thenujawijesuriya/recall/internal/generation"
 	"github.com/thenujawijesuriya/recall/internal/queue"
 )
+
+func healthAddress() string {
+	port := os.Getenv("WORKER_HEALTH_PORT")
+	if port == "" {
+		port = "8081"
+	}
+
+	return ":" + port
+}
 
 func configureLogging() {
 	level := slog.LevelInfo
@@ -74,7 +85,25 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	slog.Info("worker started")
+	health := &http.Server{
+		Addr: healthAddress(),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"ok"}` + "\n"))
+		}),
+	}
+	go func() {
+		if err := health.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("worker health server", "error", err)
+		}
+	}()
+	defer func() {
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = health.Shutdown(shutdownContext)
+	}()
+
+	slog.Info("worker started", "health_address", health.Addr)
 	if err := api.NewWorker(api.NewPostgresStore(pool), embeddingClient, generationClient, notifier).Run(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("ingestion worker: %v", err)
 	}
