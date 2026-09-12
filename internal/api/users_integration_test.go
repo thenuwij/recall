@@ -47,8 +47,8 @@ func TestPostgresUserByEmailReturnsTheStoredHash(t *testing.T) {
 	if hash != "hash-"+created.Email {
 		t.Fatalf("hash = %q, want %q", hash, "hash-"+created.Email)
 	}
-	if found.MaxDocuments != nil {
-		t.Fatalf("max documents = %v, want nil for an unlimited account", *found.MaxDocuments)
+	if found.MaxDocuments == nil || *found.MaxDocuments != 10 {
+		t.Fatalf("max documents = %v, want the default of 10", found.MaxDocuments)
 	}
 }
 
@@ -167,5 +167,47 @@ func TestPostgresSearchIsScopedToTheirOwner(t *testing.T) {
 
 	if len(results) != 0 {
 		t.Fatalf("search returned %d chunks for a user who owns nothing, want 0", len(results))
+	}
+}
+
+func TestPostgresCountDocumentsIsPerUser(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	stranger := createTestUser(t, store, "counter@example.com")
+	ctx := context.Background()
+
+	before, err := store.countDocuments(ctx, testOwnerID)
+	if err != nil {
+		t.Fatalf("countDocuments: %v", err)
+	}
+
+	createTestDocument(t, store, pool, newDocument{Title: "Counted", SourceType: sourceText, Content: "one two three four"})
+
+	after, err := store.countDocuments(ctx, testOwnerID)
+	if err != nil {
+		t.Fatalf("countDocuments: %v", err)
+	}
+	if after != before+1 {
+		t.Fatalf("owner count = %d, want %d", after, before+1)
+	}
+
+	strangerCount, err := store.countDocuments(ctx, stranger.ID)
+	if err != nil {
+		t.Fatalf("countDocuments: %v", err)
+	}
+	if strangerCount != 0 {
+		t.Fatalf("stranger count = %d, want 0", strangerCount)
+	}
+}
+
+func TestPostgresNewAccountsGetDefaultQuotas(t *testing.T) {
+	store := NewPostgresStore(testPool(t))
+	created := createTestUser(t, store, "defaults@example.com")
+
+	if created.MaxDocuments == nil || *created.MaxDocuments != 10 {
+		t.Fatalf("max documents = %v, want 10", created.MaxDocuments)
+	}
+	if created.MaxPagesPerDocument == nil || *created.MaxPagesPerDocument != 50 {
+		t.Fatalf("max pages = %v, want 50", created.MaxPagesPerDocument)
 	}
 }

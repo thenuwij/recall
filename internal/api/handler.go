@@ -36,6 +36,7 @@ type documentStore interface {
 	nextDueAt(ctx context.Context, userID string) (*time.Time, error)
 	reviewCard(ctx context.Context, cardID, userID string) (reviewCard, error)
 	recordReview(ctx context.Context, review newReview) error
+	countDocuments(ctx context.Context, userID string) (int, error)
 	createUser(ctx context.Context, email, passwordHash string) (user, error)
 	userByEmail(ctx context.Context, email string) (user, string, error)
 	createSession(ctx context.Context, token, userID string, expiresAt time.Time) error
@@ -171,6 +172,10 @@ func (h *handler) submitDocument(w http.ResponseWriter, r *http.Request) {
 
 	account, _ := userFromContext(r.Context())
 	chunks := h.splitter.Split(request.Content)
+	if h.writeQuotaError(w, account, h.withinQuota(r.Context(), account, documentPages(chunks))) {
+		return
+	}
+
 	doc := newDocument{Title: title, SourceType: sourceText, Content: request.Content, UserID: account.ID}
 
 	id, jobID, err := h.store.createDocument(r.Context(), doc, chunks)

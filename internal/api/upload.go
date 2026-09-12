@@ -88,6 +88,10 @@ func (h *handler) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.writeQuotaError(w, account, h.withinQuota(r.Context(), account, documentPages(chunks))) {
+		return
+	}
+
 	id, jobID, err := h.store.createDocument(r.Context(), doc, chunks)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not store document"})

@@ -338,3 +338,12 @@ func (s *PostgresStore) deleteSession(ctx context.Context, token string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token = $1`, token)
 	return err
 }
+
+func (s *PostgresStore) countDocuments(ctx context.Context, userID string) (int, error) {
+	var count int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM documents WHERE user_id = $1`, userID).Scan(&count); err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}

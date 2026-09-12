@@ -8,9 +8,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/thenujawijesuriya/recall/internal/chunking"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -22,6 +24,8 @@ const (
 
 var (
 	errEmailTaken      = errors.New("email already registered")
+	errDocumentQuota   = errors.New("document quota reached")
+	errPageQuota       = errors.New("page quota reached")
 	errUserNotFound    = errors.New("user not found")
 	errSessionNotFound = errors.New("session not found")
 )
@@ -219,4 +223,54 @@ func (h *handler) requireUser(next http.HandlerFunc) http.HandlerFunc {
 
 		next(w, r.WithContext(context.WithValue(r.Context(), userContextKey, account)))
 	}
+}
+
+func (h *handler) withinQuota(ctx context.Context, account user, pages int) error {
+	if account.MaxPagesPerDocument != nil && pages > *account.MaxPagesPerDocument {
+		return errPageQuota
+	}
+
+	if account.MaxDocuments == nil {
+		return nil
+	}
+
+	stored, err := h.store.countDocuments(ctx, account.ID)
+	if err != nil {
+		return err
+	}
+	if stored >= *account.MaxDocuments {
+		return errDocumentQuota
+	}
+
+	return nil
+}
+
+func (h *handler) writeQuotaError(w http.ResponseWriter, account user, err error) bool {
+	switch {
+	case errors.Is(err, errDocumentQuota):
+		writeJSON(w, http.StatusForbidden, errorResponse{
+			Error: "document limit reached: this account may store " + strconv.Itoa(*account.MaxDocuments) + " documents",
+		})
+	case errors.Is(err, errPageQuota):
+		writeJSON(w, http.StatusForbidden, errorResponse{
+			Error: "page limit reached: this account may upload documents of up to " + strconv.Itoa(*account.MaxPagesPerDocument) + " pages",
+		})
+	case err != nil:
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not check the account quota"})
+	default:
+		return false
+	}
+
+	return true
+}
+
+func documentPages(chunks []chunking.Chunk) int {
+	pages := 0
+	for _, chunk := range chunks {
+		if chunk.Page > pages {
+			pages = chunk.Page
+		}
+	}
+
+	return pages
 }

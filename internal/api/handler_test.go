@@ -222,6 +222,29 @@ func signIn(store *memoryStore, request *http.Request) *http.Request {
 	return request
 }
 
+func (s *memoryStore) countDocuments(_ context.Context, _ string) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.documents), nil
+}
+
+func signInWithQuota(store *memoryStore, request *http.Request, maxDocuments, maxPages *int) *http.Request {
+	store.mu.Lock()
+	store.users["signed-in@example.com"] = user{
+		ID:                  testAccountID,
+		Email:               "signed-in@example.com",
+		MaxDocuments:        maxDocuments,
+		MaxPagesPerDocument: maxPages,
+	}
+	store.sessions["signed-in-token"] = testAccountID
+	store.mu.Unlock()
+
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "signed-in-token"})
+
+	return request
+}
+
 func newTestHandler(store documentStore) http.Handler {
 	return NewHandler(store, &fakeEmbedder{}, &fakeGenerator{}, &fakePublisher{}, &fakeExtractor{})
 }
