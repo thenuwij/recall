@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up the Recall database to S3
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/recall
+EnvironmentFile=/etc/recall/backup.env
+ExecStart=/home/ubuntu/recall/scripts/backup.sh
