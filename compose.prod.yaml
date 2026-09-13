@@ -14,6 +14,7 @@ services:
   worker:
     restart: unless-stopped
     stop_grace_period: 40s
+    ports: !override []
 
   caddy:
     image: caddy:2-alpine
