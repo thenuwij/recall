@@ -25,6 +25,24 @@ func configureLogging() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 }
 
+func waitFor(dependency string, check func(context.Context) error) error {
+	deadline := time.Now().Add(time.Minute)
+	for {
+		attemptContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := check(attemptContext)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+
+		slog.Warn("waiting for dependency", "dependency", dependency, "error", err)
+		time.Sleep(2 * time.Second)
+	}
+}
+
 func main() {
 	configureLogging()
 
@@ -55,7 +73,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	if err := pool.Ping(connectionContext); err != nil {
+	if err := waitFor("postgres", pool.Ping); err != nil {
 		log.Fatalf("connect to database: %v", err)
 	}
 
@@ -67,10 +85,10 @@ func main() {
 		_ = publisher.Close()
 	}()
 
-	if err := publisher.Ping(connectionContext); err != nil {
+	if err := waitFor("redis", publisher.Ping); err != nil {
 		log.Fatalf("connect to redis: %v", err)
 	}
-	if err := publisher.EnsureGroup(connectionContext); err != nil {
+	if err := waitFor("redis stream group", publisher.EnsureGroup); err != nil {
 		log.Fatalf("prepare job stream: %v", err)
 	}
 
