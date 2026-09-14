@@ -23,7 +23,7 @@ The demo account is `demo@recall.app` / `recalldemo123`. It includes practice qu
 - **Understand your answers:** see a grade, explanation, suggested answer and highlighted source excerpt after each response.
 - **Read the original:** open uploaded PDFs with page navigation and zoom. Source feedback links to the relevant PDF page.
 - **Build a review habit:** SM-2 schedules the next review from your answer grade.
-- **Ask your notes:** search your library and get answers with source citations.
+- **Ask your notes:** ask a question and get an answer from the most relevant passages in your library, with citations. If your notes don't cover it, Recall says so instead of guessing.
 
 The interface adapts to phone, tablet and desktop, and follows your system's light or dark appearance.
 
@@ -64,6 +64,8 @@ Browser → API ── documents, jobs, reviews ──→ Postgres
 Postgres owns job state. A job is saved in the same transaction as its document, and Redis only wakes a worker, so jobs still run while Redis is unavailable. Workers claim jobs with `FOR UPDATE SKIP LOCKED` and hold a renewable lease. If a worker crashes, its job is claimed again, and the old worker cannot overwrite the new result. Temporary OpenAI errors retry with backoff before a job is marked failed.
 
 Each card points to the passage it was generated from, and answers are graded against that passage. Model responses with invalid scores or unknown sources are rejected. Original PDFs are stored in Postgres and served only to their owner.
+
+Ask uses retrieval-augmented generation (RAG). Your question is embedded, pgvector finds the closest passages, and the model answers only from those passages with citations. If no passage is close enough, Recall refuses rather than generating an answer.
 
 ## Testing
 
