@@ -81,7 +81,12 @@
         <p id="upload-message" class="message" role="status" hidden></p>
         <div class="section-heading">
           <h2 id="documents-title">All documents</h2>
-          <span id="document-count" class="meta"></span>
+          <div class="section-actions">
+            <button id="add-documents" class="secondary" type="button" hidden>
+              + Add documents
+            </button>
+            <span id="document-count" class="meta"></span>
+          </div>
         </div>
         <p id="list-message" class="message" role="status" hidden></p>
         <div id="documents" class="document-grid" aria-live="polite">
@@ -117,6 +122,73 @@
           <button type="button" class="secondary" id="cancel-folder">
             Cancel</button
           ><button type="submit">Save folder</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="move-dialog">
+      <form id="move-form">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ORGANISE DOCUMENT</p>
+            <h2 id="move-dialog-title">Move document</h2>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            id="close-move"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <label for="move-folder">Move to</label>
+        <select id="move-folder"></select>
+        <p id="move-message" class="message" role="status" hidden></p>
+        <div class="dialog-actions">
+          <button type="button" class="secondary" id="cancel-move">
+            Cancel</button
+          ><button type="submit">Move document</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="add-documents-dialog" class="document-picker-dialog">
+      <form id="add-documents-form">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ADD EXISTING DOCUMENTS</p>
+            <h2 id="add-documents-title">Add to folder</h2>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            id="close-add-documents"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <p class="dialog-copy">
+          Selected documents will move from their current folder into this one.
+        </p>
+        <label for="document-search">Find a document</label>
+        <input
+          id="document-search"
+          type="search"
+          placeholder="Search by title"
+          autocomplete="off"
+        />
+        <fieldset
+          id="document-picker-list"
+          class="document-picker-list"
+        ></fieldset>
+        <p id="add-documents-message" class="message" role="status" hidden></p>
+        <div class="dialog-actions">
+          <span id="selected-document-count" class="meta">0 selected</span>
+          <button type="button" class="secondary" id="cancel-add-documents">
+            Cancel</button
+          ><button type="submit" id="confirm-add-documents" disabled>
+            Add selected
+          </button>
         </div>
       </form>
     </dialog>
