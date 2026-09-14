@@ -109,13 +109,6 @@ func main() {
 		_ = notifier.Close()
 	}()
 
-	if err := waitFor("redis", notifier.Ping); err != nil {
-		log.Fatalf("connect to redis: %v", err)
-	}
-	if err := waitFor("redis stream group", notifier.EnsureGroup); err != nil {
-		log.Fatalf("prepare job stream: %v", err)
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

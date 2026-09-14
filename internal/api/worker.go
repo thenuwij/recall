@@ -23,11 +23,11 @@ const (
 type ingestionStore interface {
 	claimIngestionJob(ctx context.Context, lease time.Duration) (ingestionJob, error)
 	chunksAwaitingEmbedding(ctx context.Context, documentID string) ([]pendingChunk, error)
-	completeIngestionJob(ctx context.Context, jobID string, embedded []embeddedChunk, model string) error
+	completeIngestionJob(ctx context.Context, jobID string, attempt int, embedded []embeddedChunk, model string) error
 	failIngestionJob(ctx context.Context, job ingestionJob, reason string, permanent bool, backoff time.Duration) error
 	documentChunks(ctx context.Context, documentID string) ([]pendingChunk, error)
-	completeCardJob(ctx context.Context, jobID string, cards []newCard) error
-	renewIngestionJob(ctx context.Context, jobID string, lease time.Duration) error
+	completeCardJob(ctx context.Context, jobID string, attempt int, cards []newCard) error
+	renewIngestionJob(ctx context.Context, jobID string, attempt int, lease time.Duration) error
 }
 
 type jobNotifier interface {
@@ -87,7 +87,7 @@ func (w *Worker) RunPool(ctx context.Context, workers int) error {
 	return ctx.Err()
 }
 
-func (w *Worker) keepLeaseAlive(ctx context.Context, jobID string) func() {
+func (w *Worker) keepLeaseAlive(ctx context.Context, job ingestionJob, cancelWork context.CancelFunc) func() {
 	renewalContext, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 
@@ -101,13 +101,14 @@ func (w *Worker) keepLeaseAlive(ctx context.Context, jobID string) func() {
 			case <-renewalContext.Done():
 				return
 			case <-ticker.C:
-				if err := w.store.renewIngestionJob(renewalContext, jobID, w.lease); err != nil {
+				if err := w.store.renewIngestionJob(renewalContext, job.ID, job.Attempts, w.lease); err != nil {
+					cancelWork()
 					if renewalContext.Err() == nil {
-						w.log().Error("renew lease", "job_id", jobID, "error", err)
+						w.log().Error("renew lease", "job_id", job.ID, "error", err)
 					}
 					return
 				}
-				w.log().Debug("lease renewed", "job_id", jobID)
+				w.log().Debug("lease renewed", "job_id", job.ID)
 			}
 		}
 	}()
@@ -171,11 +172,8 @@ func (w *Worker) waitForWork(ctx context.Context) error {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			w.log().Error("process notified job", "error", err)
 		}
-		if err != nil {
-			continue
-		}
 		if !worked {
-			w.log().Warn("notified job was not in the queue", "job_id", message.JobID)
+			w.log().Debug("notified job was not in the queue", "job_id", message.JobID)
 		}
 
 		if err := w.notifier.Ack(ctx, message.ID); err != nil {
@@ -198,7 +196,9 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	started := time.Now()
 	w.log().Info("job claimed", "job_id", job.ID, "kind", job.Kind, "document_id", job.DocumentID, "attempt", job.Attempts)
 
-	stopRenewal := w.keepLeaseAlive(ctx, job.ID)
+	ctx, cancelWork := context.WithCancel(ctx)
+	defer cancelWork()
+	stopRenewal := w.keepLeaseAlive(ctx, job, cancelWork)
 	defer stopRenewal()
 
 	if job.Kind == jobKindCards {
@@ -212,7 +212,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 
 	if len(pending) == 0 {
 		w.log().Info("nothing to embed", "job_id", job.ID, "document_id", job.DocumentID)
-		return true, w.store.completeIngestionJob(ctx, job.ID, nil, embedding.Model)
+		return true, w.store.completeIngestionJob(ctx, job.ID, job.Attempts, nil, embedding.Model)
 	}
 
 	w.log().Info("embedding chunks", "job_id", job.ID, "chunks", len(pending))
@@ -238,7 +238,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		embedded[index] = embeddedChunk{ID: pending[index].ID, Embedding: vector}
 	}
 
-	if err := w.store.completeIngestionJob(ctx, job.ID, embedded, embedding.Model); err != nil {
+	if err := w.store.completeIngestionJob(ctx, job.ID, job.Attempts, embedded, embedding.Model); err != nil {
 		return true, w.fail(ctx, job, fmt.Sprintf("store embeddings: %v", err), false)
 	}
 

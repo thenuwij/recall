@@ -85,13 +85,6 @@ func main() {
 		_ = publisher.Close()
 	}()
 
-	if err := waitFor("redis", publisher.Ping); err != nil {
-		log.Fatalf("connect to redis: %v", err)
-	}
-	if err := waitFor("redis stream group", publisher.EnsureGroup); err != nil {
-		log.Fatalf("prepare job stream: %v", err)
-	}
-
 	address := ":8080"
 	if port := os.Getenv("PORT"); port != "" {
 		address = ":" + port

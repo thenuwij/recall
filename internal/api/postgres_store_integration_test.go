@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/thenujawijesuriya/recall/internal/chunking"
@@ -33,7 +37,23 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Skip("set RECALL_TEST_DATABASE_URL to run PostgreSQL integration tests")
 	}
 
-	pool, err := pgxpool.New(context.Background(), databaseURL)
+	ctx := context.Background()
+	admin, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := "test_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = admin.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE"); admin.Close() })
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Fatalf("connect to test database: %v", err)
 	}
@@ -43,6 +63,19 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("ping test database: %v", err)
 	}
 
+	migrations, err := filepath.Glob("../../migrations/*.sql")
+	if err != nil || len(migrations) == 0 {
+		t.Fatal("test migrations missing")
+	}
+	for _, path := range migrations {
+		sql, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("apply %s: %v", path, err)
+		}
+	}
 	ensureTestOwner(t, pool)
 
 	return pool
@@ -431,7 +464,10 @@ func TestPostgresDocumentStatusSeparatesEmbedAndCardJobs(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT id::text FROM ingestion_jobs WHERE document_id = $1`, id).Scan(&jobID); err != nil {
 		t.Fatalf("read job id: %v", err)
 	}
-	if err := store.completeIngestionJob(ctx, jobID, nil, ""); err != nil {
+	if _, err := store.claimIngestionJob(ctx, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.completeIngestionJob(ctx, jobID, 1, nil, ""); err != nil {
 		t.Fatalf("completeIngestionJob: %v", err)
 	}
 

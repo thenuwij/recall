@@ -53,6 +53,12 @@ func NewStream(redisURL, stream, group, consumer string) (*Stream, error) {
 		consumer = defaultConsumerName()
 	}
 
+	options.DialTimeout = time.Second
+	options.ReadTimeout = 3 * time.Second
+	options.WriteTimeout = time.Second
+	options.MaxRetries = -1
+	options.ContextTimeoutEnabled = true
+
 	return &Stream{
 		client:   redis.NewClient(options),
 		stream:   stream,
@@ -86,11 +92,16 @@ func (s *Stream) EnsureGroup(ctx context.Context) error {
 func (s *Stream) Publish(ctx context.Context, jobID string) error {
 	return s.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: s.stream,
+		MaxLen: 1000,
+		Approx: true,
 		Values: map[string]any{jobIDField: jobID},
 	}).Err()
 }
 
 func (s *Stream) Receive(ctx context.Context, count int64, block time.Duration) ([]Message, error) {
+	if err := s.EnsureGroup(ctx); err != nil {
+		return nil, err
+	}
 	streams, err := s.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    s.group,
 		Consumer: s.consumer,

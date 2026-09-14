@@ -37,7 +37,7 @@ func createTestCards(t *testing.T, store *PostgresStore, pool *pgxpool.Pool, cou
 	for index, chunk := range chunks {
 		cards[index] = newCard{ChunkID: chunk.ID, Question: fmt.Sprintf("Question %d?", index), ExpectedAnswer: fmt.Sprintf("Answer %d.", index)}
 	}
-	if err := store.completeCardJob(ctx, cardJobID, cards); err != nil {
+	if err := store.completeCardJob(ctx, cardJobID, 1, cards); err != nil {
 		t.Fatalf("completeCardJob: %v", err)
 	}
 

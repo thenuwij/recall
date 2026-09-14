@@ -134,7 +134,10 @@ func TestPostgresChunksAwaitingEmbeddingSkipsEmbeddedChunks(t *testing.T) {
 		t.Fatalf("pending = %d, want 2", len(pending))
 	}
 
-	if err := store.completeIngestionJob(ctx, jobIDFor(t, pool), []embeddedChunk{
+	if _, err := store.claimIngestionJob(ctx, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.completeIngestionJob(ctx, jobIDFor(t, pool), 1, []embeddedChunk{
 		{ID: pending[0].ID, Embedding: testVector(1, 0)},
 	}, embedding.Model); err != nil {
 		t.Fatalf("completeIngestionJob: %v", err)
@@ -163,7 +166,10 @@ func TestPostgresCompleteIngestionJobIsAtomic(t *testing.T) {
 		t.Fatalf("chunksAwaitingEmbedding: %v", err)
 	}
 
-	err = store.completeIngestionJob(ctx, jobIDFor(t, pool), []embeddedChunk{
+	if _, err := store.claimIngestionJob(ctx, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	err = store.completeIngestionJob(ctx, jobIDFor(t, pool), 1, []embeddedChunk{
 		{ID: pending[0].ID, Embedding: testVector(1, 0)},
 		{ID: pending[1].ID, Embedding: []float32{1, 2, 3}},
 	}, embedding.Model)
@@ -191,7 +197,10 @@ func TestPostgresFailIngestionJobRequeuesThenGivesUp(t *testing.T) {
 	store := NewPostgresStore(pool)
 	ctx := context.Background()
 
-	job := ingestionJob{ID: jobIDFor(t, pool), Attempts: 1}
+	job, err := store.claimIngestionJob(context.Background(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := store.failIngestionJob(ctx, job, "provider unavailable", false, 0); err != nil {
 		t.Fatalf("failIngestionJob: %v", err)
 	}
@@ -199,7 +208,14 @@ func TestPostgresFailIngestionJobRequeuesThenGivesUp(t *testing.T) {
 		t.Errorf("state = %q, want %q after a retryable failure", state, jobQueued)
 	}
 
-	job.Attempts = maxIngestionAttempts
+	job, err = store.claimIngestionJob(ctx, -time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err = store.claimIngestionJob(ctx, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := store.failIngestionJob(ctx, job, "provider unavailable", false, 0); err != nil {
 		t.Fatalf("failIngestionJob at cap: %v", err)
 	}
@@ -213,7 +229,10 @@ func TestPostgresFailIngestionJobTreatsPermanentFailureAsTerminal(t *testing.T) 
 	insertJobFixture(t, pool)
 	store := NewPostgresStore(pool)
 
-	job := ingestionJob{ID: jobIDFor(t, pool), Attempts: 1}
+	job, err := store.claimIngestionJob(context.Background(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := store.failIngestionJob(context.Background(), job, "malformed request", true, 0); err != nil {
 		t.Fatalf("failIngestionJob: %v", err)
 	}
@@ -274,7 +293,7 @@ func TestPostgresCompleteIngestionJobChainsOneCardJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claim embed job: %v", err)
 	}
-	if err := store.completeIngestionJob(ctx, embedJob.ID, nil, embedding.Model); err != nil {
+	if err := store.completeIngestionJob(ctx, embedJob.ID, embedJob.Attempts, nil, embedding.Model); err != nil {
 		t.Fatalf("complete embed job: %v", err)
 	}
 
@@ -283,8 +302,8 @@ func TestPostgresCompleteIngestionJobChainsOneCardJob(t *testing.T) {
 		t.Fatalf("jobs = %v, want a completed embed job and a queued card job", kinds)
 	}
 
-	if err := store.completeIngestionJob(ctx, embedJob.ID, nil, embedding.Model); err != nil {
-		t.Fatalf("complete embed job again: %v", err)
+	if err := store.completeIngestionJob(ctx, embedJob.ID, embedJob.Attempts, nil, embedding.Model); !errors.Is(err, errJobNoLongerHeld) {
+		t.Fatalf("repeated completion should lose ownership: %v", err)
 	}
 
 	cardJob, err := store.claimIngestionJob(ctx, time.Minute)
@@ -294,7 +313,7 @@ func TestPostgresCompleteIngestionJobChainsOneCardJob(t *testing.T) {
 	if cardJob.Kind != jobKindCards || cardJob.DocumentID != jobFixtureDocumentID {
 		t.Fatalf("claimed %+v, want the card job for the fixture document", cardJob)
 	}
-	if err := store.completeIngestionJob(ctx, cardJob.ID, nil, ""); err != nil {
+	if err := store.completeIngestionJob(ctx, cardJob.ID, cardJob.Attempts, nil, ""); err != nil {
 		t.Fatalf("complete card job: %v", err)
 	}
 

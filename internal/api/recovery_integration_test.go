@@ -64,11 +64,11 @@ func TestPostgresCompleteCardJobRefusesASecondCompletion(t *testing.T) {
 	jobID := claimedCardJob(t, store, pool, id)
 
 	cards := []newCard{{ChunkID: firstChunkID(t, pool, id), Question: "Q?", ExpectedAnswer: "A."}}
-	if err := store.completeCardJob(ctx, jobID, cards); err != nil {
+	if err := store.completeCardJob(ctx, jobID, 1, cards); err != nil {
 		t.Fatalf("first completion: %v", err)
 	}
 
-	err := store.completeCardJob(ctx, jobID, cards)
+	err := store.completeCardJob(ctx, jobID, 1, cards)
 
 	if !errors.Is(err, errJobNoLongerHeld) {
 		t.Fatalf("second completion error = %v, want %v", err, errJobNoLongerHeld)
@@ -126,7 +126,7 @@ func TestPostgresRenewIngestionJobExtendsTheLease(t *testing.T) {
 		t.Fatalf("read lease: %v", err)
 	}
 
-	if err := store.renewIngestionJob(ctx, job.ID, 5*time.Minute); err != nil {
+	if err := store.renewIngestionJob(ctx, job.ID, job.Attempts, 5*time.Minute); err != nil {
 		t.Fatalf("renew: %v", err)
 	}
 
@@ -147,11 +147,11 @@ func TestPostgresRenewIngestionJobRefusesAJobItNoLongerHolds(t *testing.T) {
 	id := createTestDocument(t, store, pool, newDocument{Title: "Lost", SourceType: sourceText, Content: "one two three four"})
 	jobID := claimedCardJob(t, store, pool, id)
 
-	if err := store.completeCardJob(ctx, jobID, nil); err != nil {
+	if err := store.completeCardJob(ctx, jobID, 1, nil); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 
-	err := store.renewIngestionJob(ctx, jobID, time.Minute)
+	err := store.renewIngestionJob(ctx, jobID, 1, time.Minute)
 
 	if !errors.Is(err, errJobNoLongerHeld) {
 		t.Fatalf("error = %v, want %v", err, errJobNoLongerHeld)
@@ -171,7 +171,7 @@ func TestPostgresNextDueAtReportsWhenCappedCardsUnlock(t *testing.T) {
 		{ChunkID: chunkID, Question: "Reviewed?", ExpectedAnswer: "Yes."},
 		{ChunkID: chunkID, Question: "Waiting?", ExpectedAnswer: "Yes."},
 	}
-	if err := store.completeCardJob(ctx, jobID, cards); err != nil {
+	if err := store.completeCardJob(ctx, jobID, 1, cards); err != nil {
 		t.Fatalf("store cards: %v", err)
 	}
 

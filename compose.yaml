@@ -44,8 +44,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
 
   worker:
     build:
@@ -60,8 +58,6 @@ services:
       REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
 volumes:

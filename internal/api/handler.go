@@ -198,6 +198,8 @@ func (h *handler) notify(ctx context.Context, jobID string) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
 	if err := h.publisher.Publish(ctx, jobID); err != nil && h.logger != nil {
 		h.log(ctx).Error("publish job", "job_id", jobID, "error", err)
 	}

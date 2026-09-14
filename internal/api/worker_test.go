@@ -32,7 +32,7 @@ type fakeIngestionStore struct {
 	renewals   int
 }
 
-func (s *fakeIngestionStore) renewIngestionJob(_ context.Context, _ string, _ time.Duration) error {
+func (s *fakeIngestionStore) renewIngestionJob(_ context.Context, _ string, _ int, _ time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -79,7 +79,7 @@ func (s *fakeIngestionStore) chunksAwaitingEmbedding(_ context.Context, _ string
 	return s.pending, nil
 }
 
-func (s *fakeIngestionStore) completeIngestionJob(_ context.Context, jobID string, embedded []embeddedChunk, _ string) error {
+func (s *fakeIngestionStore) completeIngestionJob(_ context.Context, jobID string, _ int, embedded []embeddedChunk, _ string) error {
 	if s.completeErr != nil {
 		return s.completeErr
 	}
@@ -97,7 +97,7 @@ func (s *fakeIngestionStore) documentChunks(_ context.Context, _ string) ([]pend
 	return s.chunks, nil
 }
 
-func (s *fakeIngestionStore) completeCardJob(_ context.Context, jobID string, cards []newCard) error {
+func (s *fakeIngestionStore) completeCardJob(_ context.Context, jobID string, _ int, cards []newCard) error {
 	if s.completeErr != nil {
 		return s.completeErr
 	}
@@ -363,7 +363,7 @@ func TestWorkerProcessesAndAcknowledgesANotification(t *testing.T) {
 	}
 }
 
-func TestWorkerDoesNotAcknowledgeWhenTheJobFails(t *testing.T) {
+func TestWorkerAcknowledgesWakeUpWhenPostgresOwnsTheRetry(t *testing.T) {
 	store := &fakeIngestionStore{
 		job:     ingestionJob{ID: "job-1", DocumentID: "document-1", Attempts: 1},
 		pending: []pendingChunk{{ID: "chunk-a", Content: "first"}},
@@ -376,8 +376,8 @@ func TestWorkerDoesNotAcknowledgeWhenTheJobFails(t *testing.T) {
 		t.Fatalf("waitForWork: %v", err)
 	}
 
-	if len(notifier.acked) != 0 {
-		t.Errorf("acked = %v, want no acknowledgement for work that did not succeed", notifier.acked)
+	if len(notifier.acked) != 1 {
+		t.Errorf("acked = %v, want wake-up acknowledged because Postgres owns retries", notifier.acked)
 	}
 }
 

@@ -8,7 +8,7 @@ ALTER TABLE ingestion_jobs
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ingestion_jobs_document_id_kind_key'
+        SELECT 1 FROM pg_constraint WHERE conname = 'ingestion_jobs_document_id_kind_key' AND conrelid = 'ingestion_jobs'::regclass
     ) THEN
         ALTER TABLE ingestion_jobs
             ADD CONSTRAINT ingestion_jobs_document_id_kind_key UNIQUE (document_id, kind);

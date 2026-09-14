@@ -80,6 +80,12 @@ type embeddedChunk struct {
 }
 
 func (s *PostgresStore) claimIngestionJob(ctx context.Context, lease time.Duration) (ingestionJob, error) {
+	// Exhaust abandoned final attempts before looking for more work.
+	if _, err := s.pool.Exec(ctx, `UPDATE ingestion_jobs SET state = 'failed',
+		last_error = COALESCE(last_error, 'worker lease expired after final attempt'), claimed_until = NULL
+		WHERE attempts >= $1 AND state IN ('queued', 'processing') AND claimed_until <= now()`, maxIngestionAttempts); err != nil {
+		return ingestionJob{}, err
+	}
 	const claimQuery = `
 		UPDATE ingestion_jobs
 		SET state = $1,
@@ -89,8 +95,8 @@ func (s *PostgresStore) claimIngestionJob(ctx context.Context, lease time.Durati
 		WHERE id = (
 			SELECT id
 			FROM ingestion_jobs
-			WHERE (state = $3 AND (claimed_until IS NULL OR claimed_until <= now()))
-			   OR (state = $1 AND claimed_until <= now())
+			WHERE attempts < 3 AND ((state = $3 AND (claimed_until IS NULL OR claimed_until <= now()))
+			   OR (state = $1 AND claimed_until <= now()))
 			ORDER BY created_at
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
@@ -141,7 +147,7 @@ func (s *PostgresStore) chunksAwaitingEmbedding(ctx context.Context, documentID 
 	return chunks, nil
 }
 
-func (s *PostgresStore) completeIngestionJob(ctx context.Context, jobID string, embedded []embeddedChunk, model string) error {
+func (s *PostgresStore) completeIngestionJob(ctx context.Context, jobID string, attempt int, embedded []embeddedChunk, model string) error {
 	transaction, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -149,6 +155,22 @@ func (s *PostgresStore) completeIngestionJob(ctx context.Context, jobID string, 
 	defer func() {
 		_ = transaction.Rollback(ctx)
 	}()
+
+	const completeQuery = `
+		UPDATE ingestion_jobs
+		SET state = $2,
+		    claimed_until = NULL,
+		    last_error = NULL,
+		    updated_at = now()
+		WHERE id = $1 AND state = 'processing' AND attempts = $3
+	`
+	result, err := transaction.Exec(ctx, completeQuery, jobID, jobCompleted, attempt)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return errJobNoLongerHeld
+	}
 
 	const updateChunkQuery = `
 		UPDATE document_chunks
@@ -161,18 +183,6 @@ func (s *PostgresStore) completeIngestionJob(ctx context.Context, jobID string, 
 		if _, err := transaction.Exec(ctx, updateChunkQuery, chunk.ID, formatVector(chunk.Embedding), model); err != nil {
 			return err
 		}
-	}
-
-	const completeQuery = `
-		UPDATE ingestion_jobs
-		SET state = $2,
-		    claimed_until = NULL,
-		    last_error = NULL,
-		    updated_at = now()
-		WHERE id = $1
-	`
-	if _, err := transaction.Exec(ctx, completeQuery, jobID, jobCompleted); err != nil {
-		return err
 	}
 
 	const chainCardsQuery = `
@@ -200,9 +210,12 @@ func (s *PostgresStore) failIngestionJob(ctx context.Context, job ingestionJob, 
 			    claimed_until = NULL,
 			    last_error = $3,
 			    updated_at = now()
-			WHERE id = $1
+			WHERE id = $1 AND state = 'processing' AND attempts = $4
 		`
-		_, err := s.pool.Exec(ctx, failQuery, job.ID, jobFailed, reason)
+		result, err := s.pool.Exec(ctx, failQuery, job.ID, jobFailed, reason, job.Attempts)
+		if err == nil && result.RowsAffected() == 0 {
+			return errJobNoLongerHeld
+		}
 		return err
 	}
 
@@ -212,21 +225,24 @@ func (s *PostgresStore) failIngestionJob(ctx context.Context, job ingestionJob, 
 		    claimed_until = now() + make_interval(secs => $3),
 		    last_error = $4,
 		    updated_at = now()
-		WHERE id = $1
+		WHERE id = $1 AND state = 'processing' AND attempts = $5
 	`
-	_, err := s.pool.Exec(ctx, requeueQuery, job.ID, jobQueued, backoff.Seconds(), reason)
+	result, err := s.pool.Exec(ctx, requeueQuery, job.ID, jobQueued, backoff.Seconds(), reason, job.Attempts)
+	if err == nil && result.RowsAffected() == 0 {
+		return errJobNoLongerHeld
+	}
 	return err
 }
 
-func (s *PostgresStore) renewIngestionJob(ctx context.Context, jobID string, lease time.Duration) error {
+func (s *PostgresStore) renewIngestionJob(ctx context.Context, jobID string, attempt int, lease time.Duration) error {
 	const query = `
 		UPDATE ingestion_jobs
 		SET claimed_until = now() + make_interval(secs => $2),
 		    updated_at = now()
-		WHERE id = $1 AND state = $3
+		WHERE id = $1 AND state = $3 AND attempts = $4
 	`
 
-	result, err := s.pool.Exec(ctx, query, jobID, lease.Seconds(), jobProcessing)
+	result, err := s.pool.Exec(ctx, query, jobID, lease.Seconds(), jobProcessing, attempt)
 	if err != nil {
 		return err
 	}

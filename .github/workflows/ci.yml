@@ -8,6 +8,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: recall_test
+          POSTGRES_USER: recall
+          POSTGRES_PASSWORD: recall
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U recall -d recall_test" --health-interval 2s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      RECALL_TEST_DATABASE_URL: postgres://recall:recall@localhost:5432/recall_test?sslmode=disable
+      RECALL_TEST_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -23,5 +39,5 @@ jobs:
             exit 1
           fi
       - run: go vet ./...
-      - run: go test -race ./...
+      - run: go test -race -count=1 ./...
       - run: docker compose build

@@ -19,7 +19,10 @@ func claimedCardJob(t *testing.T, store *PostgresStore, pool *pgxpool.Pool, docu
 	).Scan(&embedJobID); err != nil {
 		t.Fatalf("read embed job: %v", err)
 	}
-	if err := store.completeIngestionJob(ctx, embedJobID, nil, ""); err != nil {
+	if _, err := store.claimIngestionJob(ctx, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.completeIngestionJob(ctx, embedJobID, 1, nil, ""); err != nil {
 		t.Fatalf("complete embed job: %v", err)
 	}
 
@@ -66,7 +69,7 @@ func TestPostgresCompleteCardJobStoresCardsWithSchedules(t *testing.T) {
 	}
 
 	before := time.Now()
-	if err := store.completeCardJob(ctx, cardJobID, []newCard{
+	if err := store.completeCardJob(ctx, cardJobID, 1, []newCard{
 		{ChunkID: chunks[0].ID, Question: "What comes after three?", ExpectedAnswer: "Four."},
 		{ChunkID: chunks[1].ID, Question: "What comes after six?", ExpectedAnswer: "Seven."},
 	}); err != nil {
@@ -130,7 +133,7 @@ func TestPostgresCompleteCardJobIsAtomic(t *testing.T) {
 		t.Fatalf("documentChunks: %v", err)
 	}
 
-	err = store.completeCardJob(ctx, cardJobID, []newCard{
+	err = store.completeCardJob(ctx, cardJobID, 1, []newCard{
 		{ChunkID: chunks[0].ID, Question: "What comes after two?", ExpectedAnswer: "Three."},
 		{ChunkID: "00000000-0000-0000-0000-000000000000", Question: "A card for a missing chunk?", ExpectedAnswer: "Rejected."},
 	})
@@ -165,7 +168,7 @@ func TestPostgresDeleteDocumentCascadesToCards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("documentChunks: %v", err)
 	}
-	if err := store.completeCardJob(ctx, cardJobID, []newCard{
+	if err := store.completeCardJob(ctx, cardJobID, 1, []newCard{
 		{ChunkID: chunks[0].ID, Question: "What comes after two?", ExpectedAnswer: "Three."},
 	}); err != nil {
 		t.Fatalf("completeCardJob: %v", err)

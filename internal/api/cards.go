@@ -85,7 +85,7 @@ func (w *Worker) processCards(ctx context.Context, job ingestionJob, started tim
 		}
 	}
 
-	if err := w.store.completeCardJob(ctx, job.ID, kept); err != nil {
+	if err := w.store.completeCardJob(ctx, job.ID, job.Attempts, kept); err != nil {
 		return w.fail(ctx, job, fmt.Sprintf("store cards: %v", err), false)
 	}
 
@@ -144,7 +144,7 @@ func (s *PostgresStore) documentChunks(ctx context.Context, documentID string) (
 	return chunks, nil
 }
 
-func (s *PostgresStore) completeCardJob(ctx context.Context, jobID string, cards []newCard) error {
+func (s *PostgresStore) completeCardJob(ctx context.Context, jobID string, attempt int, cards []newCard) error {
 	transaction, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -152,6 +152,22 @@ func (s *PostgresStore) completeCardJob(ctx context.Context, jobID string, cards
 	defer func() {
 		_ = transaction.Rollback(ctx)
 	}()
+
+	const completeQuery = `
+		UPDATE ingestion_jobs
+		SET state = $2,
+		    claimed_until = NULL,
+		    last_error = NULL,
+		    updated_at = now()
+		WHERE id = $1 AND state = $3 AND attempts = $4
+	`
+	result, err := transaction.Exec(ctx, completeQuery, jobID, jobCompleted, jobProcessing, attempt)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return errJobNoLongerHeld
+	}
 
 	const insertCardQuery = `
 		INSERT INTO cards (chunk_id, question, expected_answer)
@@ -170,22 +186,6 @@ func (s *PostgresStore) completeCardJob(ctx context.Context, jobID string, cards
 		if _, err := transaction.Exec(ctx, insertScheduleQuery, cardID); err != nil {
 			return err
 		}
-	}
-
-	const completeQuery = `
-		UPDATE ingestion_jobs
-		SET state = $2,
-		    claimed_until = NULL,
-		    last_error = NULL,
-		    updated_at = now()
-		WHERE id = $1 AND state = $3
-	`
-	result, err := transaction.Exec(ctx, completeQuery, jobID, jobCompleted, jobProcessing)
-	if err != nil {
-		return err
-	}
-	if result.RowsAffected() == 0 {
-		return errJobNoLongerHeld
 	}
 
 	return transaction.Commit(ctx)

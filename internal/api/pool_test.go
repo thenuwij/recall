@@ -41,7 +41,7 @@ func (s *blockingStore) chunksAwaitingEmbedding(_ context.Context, _ string) ([]
 	return nil, nil
 }
 
-func (s *blockingStore) completeIngestionJob(_ context.Context, _ string, _ []embeddedChunk, _ string) error {
+func (s *blockingStore) completeIngestionJob(_ context.Context, _ string, _ int, _ []embeddedChunk, _ string) error {
 	return nil
 }
 
