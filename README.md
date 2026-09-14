@@ -2,28 +2,97 @@
 
 [![CI](https://github.com/thenuwij/recall/actions/workflows/ci.yml/badge.svg)](https://github.com/thenuwij/recall/actions/workflows/ci.yml)
 
-Upload your lecture notes and Recall quizzes you on them. It writes questions from the PDF, asks them back on a spaced-repetition schedule, and grades what you type against the exact passage the question came from, highlighted on its page.
+Recall turns lecture PDFs into practice questions and schedules reviews using spaced repetition. It grades your answers against the source material and highlights the relevant passage in the PDF, so you can check the explanation in context.
 
-Live at https://recall.thenujawijesuriya.com. To try it without signing up, sign in with `demo@recall.app` and `recalldemo123`. The demo account already has a document with questions. Your answers are graded but not saved, so everyone gets the same questions, and you can upload one PDF of up to 10 pages.
+Built with Go, Postgres, pgvector, Redis and OpenAI. The web interface uses plain HTML and JavaScript.
 
-Written in Go, with Postgres and pgvector for storage and search, Redis for waking the worker, and OpenAI for embeddings, question writing and grading.
+## Try Recall
 
-## Run it
+Open [Recall](https://recall.thenujawijesuriya.com) and create an account, or use the demo account:
 
-You need Docker and an OpenAI API key. Go, Postgres, Redis and `pdftotext` all live in the containers.
+- **Email:** `demo@recall.app`
+- **Password:** `recalldemo123`
+
+The demo includes a document with practice questions and lets you upload one PDF of up to 10 pages. Answers are graded but aren't saved, so each visitor can try the same questions.
+
+## Features
+
+- **Questions from your notes:** Upload a lecture PDF to generate practice questions from its contents.
+- **Source-based feedback:** Answers are graded against the passage used to create the question, with the source highlighted in the PDF.
+- **Spaced repetition:** Review dates follow the SM-2 algorithm, using answer grades from 0 to 5.
+- **Background processing:** A worker processes uploads and generates questions while you use the app.
+
+## Run locally
+
+You need Docker and an OpenAI API key. Go, Postgres, Redis and `pdftotext` run in containers.
 
 ```sh
 git clone https://github.com/thenuwij/recall.git
 cd recall
-cp .env.example .env               # then put your key in OPENAI_API_KEY
+cp .env.example .env
+```
+
+Set `OPENAI_API_KEY` in `.env`, then start the services:
+
+```sh
 docker compose up --build
 ```
 
-Open http://localhost:8090, make an account and upload a PDF. The Library shows it go `ready`, then its card count, and Review has your first questions. A 24-chunk lecture took about 13 seconds end to end.
+Open [localhost:8090](http://localhost:8090), create an account and upload a PDF. Track processing in the Library, then open Review once questions are available.
 
-`docker compose down` stops it, and `down -v` wipes the database too.
+To stop the services, run `docker compose down`. To also delete the database volume, run `docker compose down -v`.
 
-The tests run with `go test -race ./...`. The ones that need a real database skip themselves unless you point them at the Compose services:
+## Architecture
+
+Recall has two binaries: an API and a worker. Both use Postgres. The HTML and JavaScript are embedded in the API binary and shipped with it.
+
+```text
+Upload PDF
+    |
+    v
+API        Save the document, chunks and ingestion job in one transaction
+    |      Notify the worker through Redis after the commit
+    v
+Worker     Embed the chunks and queue a card-generation job
+    |
+    v
+Worker     Generate questions, remove near-duplicates and schedule reviews
+    |
+    v
+Review     Grade the answer against its source chunk and set the next review date
+```
+
+### Source references and model calls
+
+Each card stores a reference to its source chunk, including the page and text offsets. Grading uses that chunk directly rather than performing another search.
+
+OpenAI handles embeddings, question generation and grading through HTTP requests in [`internal/embedding`](internal/embedding) and [`internal/generation`](internal/generation). These packages define timeouts, retries and response validation. Cards that cite an unknown chunk are rejected, as are grades that are missing, fractional or outside the allowed range. Document text is passed in the user message, never the system prompt.
+
+### Job processing
+
+Postgres is the source of truth for jobs; Redis provides wake-up notifications. The API writes each job in the same transaction as its document and notifies Redis after the commit. Workers also poll Postgres every two seconds, so processing can continue if a notification is lost or Redis is unavailable.
+
+Workers claim jobs with `FOR UPDATE SKIP LOCKED`, allowing multiple workers to claim separate rows concurrently. Each claim has a two-minute lease, renewed every 40 seconds while the job runs. If a worker stops, the job becomes available again when its lease expires.
+
+Attempts are counted when a job is claimed, including attempts interrupted by a worker crash. Rate limits, timeouts and server errors retry with backoff, up to three attempts in total. A 400 response or malformed model response fails immediately. Failed jobs remain in the table with their `last_error` for inspection.
+
+The worker uses a fixed pool of goroutines, configured with `WORKER_CONCURRENCY` (default: 2). On shutdown, it stops claiming jobs and cancels active work. Interrupted jobs remain available for recovery after their leases expire.
+
+### Scaling
+
+Additional workers can share the same Postgres job queue across processes or machines. API sessions are also stored in Postgres, allowing multiple API instances behind Caddy.
+
+Vector search currently uses an exact scan without a vector index. Search latency therefore increases with the number of stored chunks; measurements are listed below.
+
+## Testing and performance
+
+With Go installed, run:
+
+```sh
+go test -race ./...
+```
+
+Integration tests that require external services are skipped unless connection URLs are provided. With the Compose services running:
 
 ```sh
 RECALL_TEST_DATABASE_URL='postgres://recall:recall@localhost:5434/recall?sslmode=disable' \
@@ -31,90 +100,42 @@ RECALL_TEST_REDIS_URL='redis://localhost:6381/0' \
 go test -race ./...
 ```
 
-## How it works
+The [recovery integration tests](internal/api/recovery_integration_test.go) cover worker termination, duplicate job completion and job claims while Redis is unavailable. Duplicate-completion testing exposed a bug that could insert the same cards twice. The [fix](https://github.com/thenuwij/recall/commit/a32c89d) checks the job's state during completion and rolls back card inserts if the job is no longer processing.
 
-```
-upload
-   |
- API       document + chunks + a queued job, one Postgres transaction
-   |       then a nudge on a Redis stream
-   |
- worker    claims the job from Postgres, embeds every chunk
-   |       same transaction queues a card job
-   |
- worker    writes questions per chunk, drops near-duplicates, schedules them
-   |
- review    your answer is graded 0-5 against that chunk, SM-2 picks the next date
-```
+CI runs the tests with the Go race detector, which caught a data race during development of the worker pool.
 
-There are two binaries, an API and a worker, sharing one database. The web interface is plain HTML and JavaScript embedded in the API binary, so there is one thing to build and ship, and the UI can never be a different version from the API behind it.
+### Recorded measurements
 
-Every card points at the chunk it was written from, with its page and offsets. Grading doesn't search again; it compares your answer with that chunk. So when you get something wrong, what you're shown is what the document actually said, not something that happened to sound similar.
+These results describe individual test runs, rather than performance guarantees.
 
-## Job queue
-
-Postgres and Redis can't commit together. Publish a job inside the transaction and you can announce work that then rolls back; publish before it and a failed commit loses the job. So the upload writes the job row in the same transaction as the document, and only tells Redis after the commit. That's a transactional outbox.
-
-Workers never take work from Redis. The message is just a wake-up, and the worker then claims whatever is next from Postgres:
-
-```sql
-UPDATE ingestion_jobs SET state = 'processing', claimed_until = now() + lease, attempts = attempts + 1
-WHERE id = (SELECT id FROM ingestion_jobs WHERE <claimable> ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
-```
-
-`SKIP LOCKED` means any number of workers can run this at once without two of them getting the same row. The lease means a worker that dies mid-job doesn't hold it forever: two minutes later it's claimable again. A running job renews its lease every 40 seconds. The worker also polls Postgres every 2 seconds, so a lost Redis message costs two seconds, a duplicated one costs nothing, and restarting Redis loses no work at all.
-
-Attempts are counted when a job is claimed, not when it fails, because a worker that gets killed never gets to report a failure. Count failures and a job that crashes its worker retries forever. Rate limits, timeouts and 5xx retry with backoff, three attempts in total; a 400 or a malformed response fails straight away, since retrying would do the identical thing again. Failed jobs keep their `last_error` in the table, which is the dead-letter queue.
-
-## Failure testing
-
-At-least-once delivery means any job might run twice, so everything a job writes has to be safe to repeat. I thought it was. Then I wrote tests that do the unpleasant things on purpose: kill a worker holding a job, complete a job twice, claim with Redis switched off.
-
-The double completion failed. `completeCardJob` inserted the cards and marked the job done without checking whether it was still in progress. So if a slow worker's lease ran out and a second worker reclaimed and finished the job, the first one would eventually finish too, and insert every card again.
-
-The fix is one condition: the completion only updates the job if it's still `processing`. If it isn't, no rows change, the function returns an error, and the transaction takes the cards back out with it ([`a32c89d`](https://github.com/thenuwij/recall/commit/a32c89d)). Take the condition out and the test fails again.
-
-The tests are in [`recovery_integration_test.go`](internal/api/recovery_integration_test.go).
-
-## The worker pool
-
-The worker started as one loop: claim, process, repeat. It's now a fixed pool of goroutines (`WORKER_CONCURRENCY`, default 2), each renewing its own lease. On shutdown it stops claiming, cancels what's running and exits. The job it dropped isn't marked failed; its lease runs out and another worker picks it up.
-
-The race detector runs on every CI build, and it caught a real data race the first time the pool ran.
-
-## Numbers
-
-Only things I actually measured.
-
-| | |
+| Measurement | Result |
 |---|---|
-| Worker shutdown | ~30 s → **1.28 s**, after the bounded pool and a 2 s poll |
-| Search, 40,000 chunks, no vector index | p50 **416 ms**, p95 **502 ms** |
-| Search, 5,000 chunks, no vector index | p50 36 ms, p95 40 ms |
-| Images | api **77 MB**, worker **39 MB** |
-| Restore drill | 8 s on a 184 KB database |
+| End-to-end processing, 24-chunk lecture | About 13 s |
+| Worker shutdown | Reduced from about 30 s to 1.28 s after introducing the bounded pool and a 2 s poll interval |
+| Search, 40,000 chunks, no vector index | p50: 416 ms; p95: 502 ms |
+| Search, 5,000 chunks, no vector index | p50: 36 ms; p95: 40 ms |
+| Docker image sizes | API: 77 MB; worker: 39 MB |
+| Restore drill, 184 KB database | 8 s |
 
-Search is an exact scan, so it grows with the corpus. The latency test is `TestPostgresSearchLatencyAtScale`, opt-in with `RECALL_SCALE_DOCUMENTS`.
+The search latency test, `TestPostgresSearchLatencyAtScale`, is opt-in through `RECALL_SCALE_DOCUMENTS`.
 
-## Where it runs
+## Deployment
 
-One AWS Lightsail instance, 2 GB, running the same Compose file with [`compose.prod.yaml`](compose.prod.yaml) on top:
+The hosted app runs on one AWS Lightsail instance with 2 GB of memory. Production uses the base Compose file with [`compose.prod.yaml`](compose.prod.yaml):
 
 ```sh
 docker compose -f compose.yaml -f compose.prod.yaml up -d --build
 ```
 
-The overlay adds Caddy, which gets the TLS certificate by itself, and unpublishes every other port. Only 22, 80 and 443 are open, so Postgres, Redis and the API aren't reachable from outside. After a reboot Docker starts every container at once and ignores Compose's health-check ordering, so the API and worker retry the database for up to a minute instead of crashing.
+The production overlay adds Caddy for automatic TLS and removes published ports from the internal services. Only ports 22, 80 and 443 are open externally; Postgres, Redis and the API are accessed through the internal network.
 
-Backups run nightly from a systemd timer ([`deploy/`](deploy/)). [`backup.sh`](scripts/backup.sh) takes a `pg_dump`, checks it with `pg_restore --list` before trusting it, and uploads it to a private S3 bucket that keeps seven days. The server's IAM key can upload and download there but can't delete, so a compromised box can't take its backups down with it. [`restore-drill.sh`](scripts/restore-drill.sh) restores the newest one into a throwaway database and compares every table's row count. Lightsail snapshots sit underneath as a second copy.
+After a host reboot, Docker restarts containers without Compose's health-check ordering. The API and worker retry their database connections for up to a minute to allow Postgres to start.
 
-## Model calls
+### Backups and recovery
 
-Recall makes three kinds of model call: embed, write cards, grade. Each is a plain HTTP request in [`internal/embedding`](internal/embedding) or [`internal/generation`](internal/generation), so the timeouts, retry decisions and response validation are all code you can read. Model output is checked, not trusted: a card citing a chunk it wasn't given is thrown away, and a grade that's missing, fractional or out of range is an error rather than a default score. Document text only ever goes in the user message, never the system prompt.
+A systemd timer runs nightly backups; configuration is in [`deploy/`](deploy/). The [backup script](scripts/backup.sh) creates a `pg_dump`, checks that `pg_restore --list` can read the archive and uploads it to a private S3 bucket with seven-day retention. The server's IAM credentials allow uploads and downloads but do not grant deletion permissions.
 
-## Scaling
-
-`SKIP LOCKED` doesn't care how many workers there are or which machine they're on, so more work means more workers. The API keeps its sessions in Postgres, so it can run as several copies behind Caddy.
+The [restore drill](scripts/restore-drill.sh) restores the latest backup into a temporary database and compares row counts for every table. Lightsail snapshots provide an additional recovery option.
 
 ## License
 
