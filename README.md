@@ -49,8 +49,6 @@ Open [localhost:8090](http://localhost:8090), create an account and upload a doc
 
 `docker compose down` stops the services. Adding `-v` also deletes the database volume and its uploaded files.
 
-Migrations run automatically on an empty database volume. Existing installations must apply new migrations before running the updated API; see [upgrade instructions](deploy/UPGRADE.md).
-
 ## Architecture
 
 Two Go binaries share Postgres: the API serves the embedded frontend, and a small worker pool handles embeddings and question generation. PDF.js is bundled locally to render original PDFs; there is no frontend build server or runtime CDN dependency.

@@ -3,6 +3,7 @@
 
 # Working documentation kept outside version control
 /docs/
+/deploy/
 
 # Go build and test outputs
 /recall
