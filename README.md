@@ -4,7 +4,7 @@
 
 Upload your lecture notes and Recall quizzes you on them. It writes questions from the PDF, asks them back on a spaced-repetition schedule, and grades what you type against the exact passage the question came from, highlighted on its page.
 
-Live at https://recall.thenujawijesuriya.com.
+Live at https://recall.thenujawijesuriya.com. To try it without signing up, sign in with `demo@recall.app` and `recalldemo123`. The demo account already has a document with questions. Your answers are graded but not saved, so everyone gets the same questions, and you can upload one PDF of up to 10 pages.
 
 Written in Go, with Postgres and pgvector for storage and search, Redis for waking the worker, and OpenAI for embeddings, question writing and grading.
 
