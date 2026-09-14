@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -145,5 +147,35 @@ func TestPostgresFoldersScopeReviewsAndKeepDocuments(t *testing.T) {
 		if doc.FolderID != "" {
 			t.Fatal("folder not cleared")
 		}
+	}
+}
+func TestPostgresOriginalPDFIsPrivateAndSupportsRanges(t *testing.T) {
+	pool := testPool(t)
+	s := NewPostgresStore(pool)
+	ctx := context.Background()
+	data := []byte("%PDF-1.4\noriginal bytes\n%%EOF")
+	id := createTestDocument(t, s, pool, newDocument{SourceType: sourcePDF, Content: "one two three four", PDF: data})
+	got, err := s.originalPDF(ctx, id, testOwnerID)
+	if err != nil || string(got) != string(data) {
+		t.Fatalf("original changed: %v", err)
+	}
+	if _, err := s.originalPDF(ctx, id, "00000000-0000-0000-0000-00000000abcd"); !errors.Is(err, errDocumentNotFound) {
+		t.Fatalf("cross-user PDF access: %v", err)
+	}
+	h := &handler{store: s}
+	request := httptest.NewRequest(http.MethodGet, "/documents/"+id+"/pdf", nil)
+	request.SetPathValue("id", id)
+	request.Header.Set("Range", "bytes=0-7")
+	request = request.WithContext(context.WithValue(request.Context(), userContextKey, user{ID: testOwnerID}))
+	response := httptest.NewRecorder()
+	h.pdf(response, request)
+	if response.Code != http.StatusPartialContent || response.Body.String() != string(data[:8]) {
+		t.Fatalf("range failed: %d %q", response.Code, response.Body.String())
+	}
+	if err := s.deleteDocument(ctx, id, testOwnerID); err != nil {
+		t.Fatal(err)
+	}
+	if countRows(t, pool, `SELECT count(*) FROM document_files`) != 0 {
+		t.Fatal("orphaned PDF")
 	}
 }

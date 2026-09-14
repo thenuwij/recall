@@ -1,12 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 	"uuid"
 
@@ -23,6 +25,7 @@ type libraryStore interface {
 	saveFolder(context.Context, string, string, string) (folder, error)
 	deleteFolder(context.Context, string, string) error
 	moveDocument(context.Context, string, string, string) error
+	originalPDF(context.Context, string, string) ([]byte, error)
 }
 
 var errFolderNotFound = errors.New("folder not found")
@@ -78,6 +81,14 @@ func (s *PostgresStore) moveDocument(ctx context.Context, id, userID, folderID s
 		return errDocumentNotFound
 	}
 	return err
+}
+func (s *PostgresStore) originalPDF(ctx context.Context, id, userID string) ([]byte, error) {
+	var data []byte
+	err := s.pool.QueryRow(ctx, `SELECT f.data FROM document_files f JOIN documents d ON d.id=f.document_id WHERE d.id=$1 AND d.user_id=$2`, id, userID).Scan(&data)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, errDocumentNotFound
+	}
+	return data, err
 }
 func validID(id string) bool { _, err := uuid.Parse(id); return err == nil }
 func libraryError(w http.ResponseWriter, err error) {
@@ -169,4 +180,21 @@ func (h *handler) moveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(204)
+}
+func (h *handler) pdf(w http.ResponseWriter, r *http.Request) {
+	if !validID(r.PathValue("id")) {
+		writeJSON(w, 400, errorResponse{Error: "invalid document id"})
+		return
+	}
+	account, _ := userFromContext(r.Context())
+	data, err := h.store.originalPDF(r.Context(), r.PathValue("id"), account.ID)
+	if err != nil {
+		libraryError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `inline; filename="recall-document.pdf"`)
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, "document.pdf", time.Time{}, bytes.NewReader(data))
 }

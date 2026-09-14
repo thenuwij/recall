@@ -19,6 +19,7 @@ var (
 
 type documentSummary struct {
 	FolderID    string    `json:"folder_id"`
+	HasPDF      bool      `json:"has_pdf"`
 	ID          string    `json:"id"`
 	Title       string    `json:"title,omitempty"`
 	SourceType  string    `json:"source_type"`

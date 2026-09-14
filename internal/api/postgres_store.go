@@ -41,6 +41,11 @@ func (s *PostgresStore) createDocument(ctx context.Context, doc newDocument, chu
 		return "", "", err
 	}
 
+	if len(doc.PDF) > 0 {
+		if _, err := transaction.Exec(ctx, `INSERT INTO document_files(document_id,data) VALUES($1,$2)`, id, doc.PDF); err != nil {
+			return "", "", err
+		}
+	}
 	const insertChunkQuery = `
 		INSERT INTO document_chunks (document_id, chunk_index, content, page_number, start_offset, end_offset)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -87,7 +92,7 @@ func formatVector(values []float32) string {
 
 func (s *PostgresStore) getDocument(ctx context.Context, id, userID string) (document, error) {
 	const query = `
-		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.content, d.created_at, e.state, e.last_error, c.state,
+		SELECT EXISTS(SELECT 1 FROM document_files f WHERE f.document_id=d.id), d.id::text, COALESCE(d.title, ''), d.source_type, d.content, d.created_at, e.state, e.last_error, c.state,
 			(
 				SELECT count(*)
 				FROM cards
@@ -103,6 +108,7 @@ func (s *PostgresStore) getDocument(ctx context.Context, id, userID string) (doc
 	var result document
 	var state, lastError, cardState *string
 	err := s.pool.QueryRow(ctx, query, id, jobKindEmbed, jobKindCards, userID).Scan(
+		&result.HasPDF,
 		&result.ID,
 		&result.Title,
 		&result.SourceType,
@@ -179,7 +185,7 @@ func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float
 
 func (s *PostgresStore) listDocuments(ctx context.Context, userID string) ([]documentSummary, error) {
 	const query = `
-		SELECT COALESCE(d.folder_id::text,''), d.id::text, COALESCE(d.title, ''), d.source_type, d.locked, d.created_at, e.state, c.state,
+		SELECT COALESCE(d.folder_id::text,''), EXISTS(SELECT 1 FROM document_files f WHERE f.document_id=d.id), d.id::text, COALESCE(d.title, ''), d.source_type, d.locked, d.created_at, e.state, c.state,
 			(
 				SELECT count(*)
 				FROM cards
@@ -203,7 +209,7 @@ func (s *PostgresStore) listDocuments(ctx context.Context, userID string) ([]doc
 	for rows.Next() {
 		var summary documentSummary
 		var state, cardState *string
-		if err := rows.Scan(&summary.FolderID, &summary.ID, &summary.Title, &summary.SourceType, &summary.Locked, &summary.CreatedAt, &state, &cardState, &summary.CardCount); err != nil {
+		if err := rows.Scan(&summary.FolderID, &summary.HasPDF, &summary.ID, &summary.Title, &summary.SourceType, &summary.Locked, &summary.CreatedAt, &state, &cardState, &summary.CardCount); err != nil {
 			return nil, err
 		}
 		summary.Status = ingestionStatus(state)

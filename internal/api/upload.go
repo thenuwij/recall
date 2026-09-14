@@ -70,6 +70,7 @@ func (h *handler) uploadDocument(w http.ResponseWriter, r *http.Request) {
 			h.writeExtractionError(w, r.Context(), err)
 			return
 		}
+		doc.PDF = data
 		doc.SourceType = sourcePDF
 		doc.Content = text
 	default:

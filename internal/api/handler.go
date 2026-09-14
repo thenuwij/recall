@@ -88,6 +88,7 @@ const (
 )
 
 type newDocument struct {
+	PDF        []byte
 	Title      string
 	SourceType string
 	Content    string
@@ -95,6 +96,7 @@ type newDocument struct {
 }
 
 type document struct {
+	HasPDF      bool      `json:"has_pdf"`
 	ID          string    `json:"id"`
 	Title       string    `json:"title,omitempty"`
 	SourceType  string    `json:"source_type"`
@@ -131,6 +133,7 @@ func NewHandler(store documentStore, embedder embeddingGenerator, generator answ
 	mux.HandleFunc("PATCH /folders/{id}", h.requireUser(h.folders))
 	mux.HandleFunc("DELETE /folders/{id}", h.requireUser(h.folders))
 	mux.HandleFunc("PATCH /documents/{id}/folder", h.requireUser(h.moveDocument))
+	mux.HandleFunc("GET /documents/{id}/pdf", h.requireUser(h.pdf))
 	mux.HandleFunc("GET /documents", h.requireUser(h.listDocuments))
 	mux.HandleFunc("GET /documents/{id}", h.requireUser(h.getDocument))
 	mux.HandleFunc("DELETE /documents/{id}", h.requireUser(h.deleteDocument))

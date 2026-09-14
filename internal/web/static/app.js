@@ -87,5 +87,16 @@ export function renderPassage(container, context) {
     el("div", "source", sourceLabel(context.title, context.page)),
     text,
   );
+  if (context.page && context.document_id) {
+    const link = el(
+      "a",
+      "source-link",
+      `Open original PDF · page ${context.page} ↗`,
+    );
+    link.href = `/viewer.html?id=${encodeURIComponent(context.document_id)}&page=${context.page}`;
+    link.target = "_blank";
+    link.rel = "noopener";
+    container.append(link);
+  }
   return mark;
 }

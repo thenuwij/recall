@@ -153,7 +153,7 @@ function renderDocument(doc) {
   );
   const title = el("h3"),
     link = el("a", "", doc.title || "Untitled document");
-  link.href = `/?document_id=${doc.id}&name=${encodeURIComponent(doc.title || "Document")}`;
+  link.href = `/viewer.html?id=${doc.id}`;
   title.append(link);
   const date = new Date(doc.created_at).toLocaleDateString([], {
     month: "short",
@@ -169,7 +169,7 @@ function renderDocument(doc) {
     ),
   );
   const actions = el("div", "document-actions"),
-    review = el("a", "", ready ? "Start review ↗" : "Questions pending");
+    review = el("a", "", ready ? "Start review ↗" : "Open document ↗");
   review.href = ready
     ? `/?document_id=${doc.id}&name=${encodeURIComponent(doc.title || "Document")}`
     : link.href;
