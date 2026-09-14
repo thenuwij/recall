@@ -23,7 +23,7 @@ The demo account is `demo@recall.app` / `recalldemo123`. It includes practice qu
 - **Understand your answers:** see a grade, explanation, suggested answer and highlighted source excerpt after each response.
 - **Read the original:** open uploaded PDFs with page navigation and zoom. Source feedback links to the relevant PDF page.
 - **Build a review habit:** SM-2 schedules the next review from your answer grade.
-- **Ask your notes:** the existing Ask screen searches your library and returns answers with source citations.
+- **Ask your notes:** search your library and get answers with source citations.
 
 The interface adapts to phone, tablet and desktop, and follows your system's light or dark appearance.
 
@@ -51,55 +51,35 @@ Open [localhost:8090](http://localhost:8090), create an account and upload a doc
 
 ## Architecture
 
-Two Go binaries share Postgres: the API serves the embedded frontend, and a small worker pool handles embeddings and question generation. PDF.js is bundled locally to render original PDFs; there is no frontend build server or runtime CDN dependency.
+Two Go binaries share one Postgres database: the API serves the embedded frontend and grades answers, and a small worker pool handles embeddings and question generation. PDF.js is bundled locally to render original PDFs.
 
 ```text
-Upload → API → Postgres: document, chunks, original PDF and queued job
-          │
-          └── Redis Streams: worker wake-up
-                    │
-                  Worker → embeddings → questions → review schedule
-                    │
-                  Postgres
+Browser → API ── documents, jobs, reviews ──→ Postgres
+           │                                     ▲
+           │                                     │ claim jobs, save results
+           │                                     │
+           └──→ Redis Streams ── wake-up ──→ Worker ── embeddings, questions ──→ OpenAI
 ```
 
-### Jobs and recovery
+Postgres owns job state. A job is saved in the same transaction as its document, and Redis only wakes a worker, so jobs still run while Redis is unavailable. Workers claim jobs with `FOR UPDATE SKIP LOCKED` and hold a renewable lease. If a worker crashes, its job is claimed again, and the old worker cannot overwrite the new result. Temporary OpenAI errors retry with backoff before a job is marked failed.
 
-Postgres owns job state. A job is inserted in the same transaction as its document, and Redis is notified after the commit. Workers also poll Postgres every two seconds and can start and process jobs while Redis is unavailable.
-
-Redis Streams is a deliberate messaging exercise in this project: it separates worker notifications from durable job storage. At this deployment size, Postgres polling alone would also be sufficient. No comparative Redis performance benefit is claimed.
-
-Workers claim jobs with `FOR UPDATE SKIP LOCKED`. Claims have a two-minute lease, renewed every 40 seconds, and an incrementing attempt number. Completion, renewal and failure updates check the claim's attempt number so an old worker cannot modify a replacement worker's job. Result writes and completion commit together.
-
-Transient provider errors retry with backoff, up to three attempts. Abandoned final attempts become failed jobs rather than retrying indefinitely. Failed jobs retain their last error. Model calls can repeat after a crash; database effects are protected against stale completion.
-
-### Source material and model calls
-
-Each card points to its source chunk. Grading uses that chunk directly, rather than searching again. Model responses are validated: invalid scores and unknown source references are rejected.
-
-Embeddings, question generation and grading use direct HTTP calls in [`internal/embedding`](internal/embedding) and [`internal/generation`](internal/generation). The workflow is small enough to keep timeouts, validation and retry decisions explicit.
-
-Original PDFs are stored in a separate Postgres table and served through authenticated, owner-scoped endpoints. This keeps file retention and backups in one storage system. Deleting a document also removes its file, questions and review history; deleting a folder only unfiles its documents.
+Each card points to the passage it was generated from, and answers are graded against that passage. Model responses with invalid scores or unknown sources are rejected. Original PDFs are stored in Postgres and served only to their owner.
 
 ## Testing
+
+With Go installed:
 
 ```sh
 go test -race ./...
 ```
 
-Full coverage, including Postgres and Redis, runs in CI on every push. Tests cover expired claims, stale worker updates, duplicate completion, retry exhaustion, folder review isolation, private PDF access and concurrent review submissions.
+Tests that need Postgres, Redis or `pdftotext` are skipped when those are not available. CI runs the full suite with all of them on every push.
 
 ## Deployment
 
-The hosted app runs on a 2 GB AWS Lightsail instance with Postgres, Redis and Caddy:
+The hosted app runs on a single AWS Lightsail instance using the same Compose services, with a production overlay that adds Caddy for HTTPS and keeps Postgres, Redis and the API off the public internet.
 
-```sh
-docker compose -f compose.yaml -f compose.prod.yaml up -d --build
-```
-
-Caddy handles TLS. Only SSH and HTTP/HTTPS ports are published in production; the API, worker, Postgres and Redis use the internal network. The API and worker retry database connections during startup.
-
-A systemd timer runs [nightly backups](scripts/backup.sh) to a private S3 bucket with seven-day retention. The database dump includes original PDFs. The [restore drill](scripts/restore-drill.sh) restores a backup into a temporary database and compares table row counts. Lightsail snapshots provide another recovery option.
+The database is [backed up](scripts/backup.sh) nightly to a private S3 bucket, including original PDFs. A [restore drill](scripts/restore-drill.sh) restores the latest backup into a temporary database and checks that every table matches.
 
 ## License
 
