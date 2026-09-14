@@ -53,10 +53,12 @@ function renderDocument(doc) {
   cards.append(renderCards(doc));
 
   const actions = el("td");
-  const remove = el("button", "danger", "Delete");
-  remove.type = "button";
-  remove.addEventListener("click", () => deleteDocument(doc, remove));
-  actions.append(remove);
+  if (!doc.locked) {
+    const remove = el("button", "danger", "Delete");
+    remove.type = "button";
+    remove.addEventListener("click", () => deleteDocument(doc, remove));
+    actions.append(remove);
+  }
 
   row.append(name, status, cards, actions);
   return row;

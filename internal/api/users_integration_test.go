@@ -211,3 +211,27 @@ func TestPostgresNewAccountsGetDefaultQuotas(t *testing.T) {
 		t.Fatalf("max pages = %v, want 50", created.MaxPagesPerDocument)
 	}
 }
+
+func TestPostgresSessionReportsADemoAccount(t *testing.T) {
+	store := NewPostgresStore(testPool(t))
+	created := createTestUser(t, store, "demo@example.com")
+	if created.IsDemo {
+		t.Fatal("new account is a demo account, want false by default")
+	}
+
+	if _, err := store.pool.Exec(context.Background(), `UPDATE users SET is_demo = true WHERE id = $1`, created.ID); err != nil {
+		t.Fatalf("mark demo: %v", err)
+	}
+	token := "integration-token-demo"
+	if err := store.createSession(context.Background(), token, created.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	found, err := store.userBySession(context.Background(), token)
+	if err != nil {
+		t.Fatalf("look up session: %v", err)
+	}
+	if !found.IsDemo {
+		t.Fatal("session user is not a demo account, want true")
+	}
+}

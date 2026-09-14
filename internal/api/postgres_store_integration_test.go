@@ -527,3 +527,42 @@ func TestPostgresChunkLocationAndSearchIncludeTitleAndPage(t *testing.T) {
 		t.Fatalf("unknown chunk error = %v, want %v", err, errChunkNotFound)
 	}
 }
+
+func TestPostgresDeleteDocumentRefusesALockedDocument(t *testing.T) {
+	pool := testPool(t)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+
+	id := createTestDocument(t, store, pool, newDocument{SourceType: sourceText, Content: "document to keep"})
+	if _, err := pool.Exec(ctx, `UPDATE documents SET locked = true WHERE id = $1`, id); err != nil {
+		t.Fatalf("lock document: %v", err)
+	}
+
+	if err := store.deleteDocument(ctx, id, testOwnerID); !errors.Is(err, errDocumentLocked) {
+		t.Fatalf("delete error = %v, want %v", err, errDocumentLocked)
+	}
+
+	summaries, err := store.listDocuments(ctx, testOwnerID)
+	if err != nil {
+		t.Fatalf("listDocuments: %v", err)
+	}
+	found := false
+	for _, summary := range summaries {
+		if summary.ID == id {
+			found = true
+			if !summary.Locked {
+				t.Fatalf("summary = %+v, want locked", summary)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("locked document is no longer listed")
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE documents SET locked = false WHERE id = $1`, id); err != nil {
+		t.Fatalf("unlock document: %v", err)
+	}
+	if err := store.deleteDocument(ctx, id, testOwnerID); err != nil {
+		t.Fatalf("delete after unlocking: %v", err)
+	}
+}

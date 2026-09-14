@@ -179,7 +179,7 @@ func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float
 
 func (s *PostgresStore) listDocuments(ctx context.Context, userID string) ([]documentSummary, error) {
 	const query = `
-		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.created_at, e.state, c.state,
+		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.locked, d.created_at, e.state, c.state,
 			(
 				SELECT count(*)
 				FROM cards
@@ -203,7 +203,7 @@ func (s *PostgresStore) listDocuments(ctx context.Context, userID string) ([]doc
 	for rows.Next() {
 		var summary documentSummary
 		var state, cardState *string
-		if err := rows.Scan(&summary.ID, &summary.Title, &summary.SourceType, &summary.CreatedAt, &state, &cardState, &summary.CardCount); err != nil {
+		if err := rows.Scan(&summary.ID, &summary.Title, &summary.SourceType, &summary.Locked, &summary.CreatedAt, &state, &cardState, &summary.CardCount); err != nil {
 			return nil, err
 		}
 		summary.Status = ingestionStatus(state)
@@ -218,15 +218,24 @@ func (s *PostgresStore) listDocuments(ctx context.Context, userID string) ([]doc
 }
 
 func (s *PostgresStore) deleteDocument(ctx context.Context, id, userID string) error {
-	result, err := s.pool.Exec(ctx, `DELETE FROM documents WHERE id = $1 AND user_id = $2`, id, userID)
+	result, err := s.pool.Exec(ctx, `DELETE FROM documents WHERE id = $1 AND user_id = $2 AND NOT locked`, id, userID)
 	if err != nil {
 		return err
 	}
-	if result.RowsAffected() == 0 {
-		return errDocumentNotFound
+	if result.RowsAffected() > 0 {
+		return nil
 	}
 
-	return nil
+	var locked bool
+	err = s.pool.QueryRow(ctx, `SELECT locked FROM documents WHERE id = $1 AND user_id = $2`, id, userID).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errDocumentNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	return errDocumentLocked
 }
 
 func (s *PostgresStore) chunkLocation(ctx context.Context, chunkID, userID string) (chunkLocation, error) {
@@ -262,12 +271,12 @@ func (s *PostgresStore) createUser(ctx context.Context, email, passwordHash stri
 	const query = `
 		INSERT INTO users (email, password_hash)
 		VALUES ($1, $2)
-		RETURNING id::text, email, max_documents, max_pages_per_document
+		RETURNING id::text, email, max_documents, max_pages_per_document, is_demo
 	`
 
 	var created user
 	err := s.pool.QueryRow(ctx, query, email, passwordHash).Scan(
-		&created.ID, &created.Email, &created.MaxDocuments, &created.MaxPagesPerDocument,
+		&created.ID, &created.Email, &created.MaxDocuments, &created.MaxPagesPerDocument, &created.IsDemo,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -282,7 +291,7 @@ func (s *PostgresStore) createUser(ctx context.Context, email, passwordHash stri
 
 func (s *PostgresStore) userByEmail(ctx context.Context, email string) (user, string, error) {
 	const query = `
-		SELECT id::text, email, max_documents, max_pages_per_document, password_hash
+		SELECT id::text, email, max_documents, max_pages_per_document, is_demo, password_hash
 		FROM users
 		WHERE email = $1
 	`
@@ -290,7 +299,7 @@ func (s *PostgresStore) userByEmail(ctx context.Context, email string) (user, st
 	var found user
 	var hash string
 	err := s.pool.QueryRow(ctx, query, email).Scan(
-		&found.ID, &found.Email, &found.MaxDocuments, &found.MaxPagesPerDocument, &hash,
+		&found.ID, &found.Email, &found.MaxDocuments, &found.MaxPagesPerDocument, &found.IsDemo, &hash,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return user{}, "", errUserNotFound
@@ -314,7 +323,7 @@ func (s *PostgresStore) createSession(ctx context.Context, token, userID string,
 
 func (s *PostgresStore) userBySession(ctx context.Context, token string) (user, error) {
 	const query = `
-		SELECT users.id::text, users.email, users.max_documents, users.max_pages_per_document
+		SELECT users.id::text, users.email, users.max_documents, users.max_pages_per_document, users.is_demo
 		FROM sessions
 		JOIN users ON users.id = sessions.user_id
 		WHERE sessions.token = $1 AND sessions.expires_at > now()
@@ -322,7 +331,7 @@ func (s *PostgresStore) userBySession(ctx context.Context, token string) (user, 
 
 	var found user
 	err := s.pool.QueryRow(ctx, query, token).Scan(
-		&found.ID, &found.Email, &found.MaxDocuments, &found.MaxPagesPerDocument,
+		&found.ID, &found.Email, &found.MaxDocuments, &found.MaxPagesPerDocument, &found.IsDemo,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return user{}, errSessionNotFound

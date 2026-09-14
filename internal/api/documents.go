@@ -21,6 +21,7 @@ type documentSummary struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title,omitempty"`
 	SourceType  string    `json:"source_type"`
+	Locked      bool      `json:"locked"`
 	Status      string    `json:"status"`
 	CardsStatus string    `json:"cards_status"`
 	CardCount   int       `json:"card_count"`
@@ -76,6 +77,10 @@ func (h *handler) deleteDocument(w http.ResponseWriter, r *http.Request) {
 	err := h.store.deleteDocument(r.Context(), id, account.ID)
 	if errors.Is(err, errDocumentNotFound) {
 		writeJSON(w, http.StatusNotFound, errorResponse{Error: "document not found"})
+		return
+	}
+	if errors.Is(err, errDocumentLocked) {
+		writeJSON(w, http.StatusForbidden, errorResponse{Error: "this document is locked and cannot be deleted"})
 		return
 	}
 	if err != nil {

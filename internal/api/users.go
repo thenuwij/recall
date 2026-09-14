@@ -35,6 +35,7 @@ type user struct {
 	Email               string `json:"email"`
 	MaxDocuments        *int   `json:"max_documents"`
 	MaxPagesPerDocument *int   `json:"max_pages_per_document"`
+	IsDemo              bool   `json:"is_demo"`
 }
 
 type credentialsRequest struct {

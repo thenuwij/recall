@@ -20,6 +20,7 @@ type memoryStore struct {
 	mu        sync.RWMutex
 	documents map[string]document
 	chunks    map[string][]chunking.Chunk
+	locked    map[string]bool
 	err       error
 
 	searchResults []searchResult

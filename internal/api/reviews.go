@@ -185,22 +185,24 @@ func (h *handler) submitReview(w http.ResponseWriter, r *http.Request) {
 
 	schedule, dueAt := scheduling.Next(card.Schedule, grade.Score, time.Now())
 
-	err = h.store.recordReview(r.Context(), newReview{
-		CardID:            cardID,
-		Answer:            answer,
-		Grade:             grade,
-		Schedule:          schedule,
-		DueAt:             dueAt,
-		PreviousUpdatedAt: card.UpdatedAt,
-	})
-	if errors.Is(err, errReviewConflict) {
-		h.log(r.Context()).Warn("review conflict", "card_id", cardID)
-		writeJSON(w, http.StatusConflict, errorResponse{Error: "this card was already answered; reload the review queue"})
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not record the review"})
-		return
+	if !account.IsDemo {
+		err = h.store.recordReview(r.Context(), newReview{
+			CardID:            cardID,
+			Answer:            answer,
+			Grade:             grade,
+			Schedule:          schedule,
+			DueAt:             dueAt,
+			PreviousUpdatedAt: card.UpdatedAt,
+		})
+		if errors.Is(err, errReviewConflict) {
+			h.log(r.Context()).Warn("review conflict", "card_id", cardID)
+			writeJSON(w, http.StatusConflict, errorResponse{Error: "this card was already answered; reload the review queue"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not record the review"})
+			return
+		}
 	}
 
 	response := reviewResponse{

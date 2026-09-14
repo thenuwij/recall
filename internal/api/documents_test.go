@@ -27,6 +27,7 @@ func (s *memoryStore) listDocuments(_ context.Context, _ string) ([]documentSumm
 			ID:          doc.ID,
 			Title:       doc.Title,
 			SourceType:  doc.SourceType,
+			Locked:      s.locked[doc.ID],
 			Status:      doc.Status,
 			CardsStatus: doc.CardsStatus,
 			CardCount:   doc.CardCount,
@@ -49,6 +50,9 @@ func (s *memoryStore) deleteDocument(_ context.Context, id, _ string) error {
 
 	if _, ok := s.documents[id]; !ok {
 		return errDocumentNotFound
+	}
+	if s.locked[id] {
+		return errDocumentLocked
 	}
 	delete(s.documents, id)
 	delete(s.chunks, id)
@@ -350,5 +354,37 @@ func TestAnswerCitationsIncludeTitleAndPage(t *testing.T) {
 	citation := decoded.Citations[0]
 	if citation.Title != "Lecture 3" || citation.Page == nil || *citation.Page != 14 {
 		t.Fatalf("citation = %+v, want title Lecture 3 on page 14", citation)
+	}
+}
+
+func TestDeleteDocumentRefusesALockedDocument(t *testing.T) {
+	store := newMemoryStore()
+	store.documents[testDocumentUUID] = document{ID: testDocumentUUID}
+	store.locked = map[string]bool{testDocumentUUID: true}
+
+	response := serve(store, http.MethodDelete, "/documents/"+testDocumentUUID)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+	if _, ok := store.documents[testDocumentUUID]; !ok {
+		t.Fatal("locked document was deleted")
+	}
+}
+
+func TestListDocumentsReportsLockedDocuments(t *testing.T) {
+	store := newMemoryStore()
+	store.documents["locked"] = document{ID: "locked", CreatedAt: time.Date(2026, time.September, 1, 9, 0, 0, 0, time.UTC)}
+	store.documents["open"] = document{ID: "open", CreatedAt: time.Date(2026, time.September, 2, 9, 0, 0, 0, time.UTC)}
+	store.locked = map[string]bool{"locked": true}
+
+	response := serve(store, http.MethodGet, "/documents")
+
+	var result documentListResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result.Documents) != 2 || result.Documents[0].Locked || !result.Documents[1].Locked {
+		t.Fatalf("documents = %+v, want open unlocked and locked locked", result.Documents)
 	}
 }

@@ -346,3 +346,33 @@ func TestGradeLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestSubmitReviewOnADemoAccountGradesWithoutRecording(t *testing.T) {
+	store := newMemoryStore()
+	store.reviewCards[testCardUUID] = testReviewCard()
+	generator := &fakeGenerator{grade: generation.Grade{Score: 4, Rationale: "Right idea."}}
+
+	request := httptest.NewRequest(http.MethodPost, "/reviews/"+testCardUUID, strings.NewReader(`{"answer": "pressure is in between"}`))
+	signIn(store, request)
+	store.users["signed-in@example.com"] = user{ID: testAccountID, Email: "signed-in@example.com", IsDemo: true}
+	response := httptest.NewRecorder()
+	NewHandler(store, &fakeEmbedder{}, generator, &fakePublisher{}, &fakeExtractor{}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", response.Code, response.Body.String())
+	}
+	if len(generator.gradeCalls) != 1 {
+		t.Fatalf("grade calls = %d, want 1", len(generator.gradeCalls))
+	}
+	if len(store.reviews) != 0 {
+		t.Fatalf("recorded reviews = %d, want 0 for a demo account", len(store.reviews))
+	}
+
+	var body reviewResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Score != 4 || body.Source == nil {
+		t.Fatalf("response = %+v, want the grade and the source passage", body)
+	}
+}

@@ -23,7 +23,10 @@ const (
 	defaultChunkOverlapWords = 40
 )
 
-var errDocumentNotFound = errors.New("document not found")
+var (
+	errDocumentNotFound = errors.New("document not found")
+	errDocumentLocked   = errors.New("document is locked")
+)
 
 type documentStore interface {
 	createDocument(ctx context.Context, doc newDocument, chunks []chunking.Chunk) (string, string, error)
