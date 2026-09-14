@@ -11,9 +11,11 @@ const password = document.getElementById("password");
 let registering = false;
 
 function applyMode() {
-  title.textContent = registering ? "Create an account" : "Sign in";
-  submit.textContent = registering ? "Create account" : "Sign in";
-  switchPrompt.textContent = registering ? "Already have an account?" : "New here?";
+  title.textContent = registering ? "A fresh start." : "Welcome back.";
+  submit.textContent = registering ? "Create account →" : "Sign in →";
+  switchPrompt.textContent = registering
+    ? "Already have an account?"
+    : "New here?";
   switchButton.textContent = registering ? "Sign in" : "Create an account";
   password.autocomplete = registering ? "new-password" : "current-password";
   showMessage(message, "", false);
@@ -49,3 +51,25 @@ form.addEventListener("submit", async (event) => {
 });
 
 applyMode();
+
+document
+  .getElementById("demo-login")
+  .addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await api("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "demo@recall.app",
+          password: "recalldemo123",
+        }),
+        allowUnauthorized: true,
+      });
+      location.href = "/library.html";
+    } catch (error) {
+      showMessage(message, error.message, true);
+      button.disabled = false;
+    }
+  });

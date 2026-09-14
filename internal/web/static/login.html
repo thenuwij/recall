@@ -1,31 +1,76 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · Recall</title>
-<link rel="stylesheet" href="/style.css">
-</head>
-<body class="centred">
-<main class="narrow">
-<div class="mark">Recall</div>
-<p class="tagline">Your own material, asked back on a forgetting curve.</p>
-<section class="panel">
-<h1 id="form-title">Sign in</h1>
-<p id="login-message" class="message" hidden></p>
-<form id="login-form">
-<label for="email">Email</label>
-<input id="email" type="email" autocomplete="email" required>
-<label for="password">Password</label>
-<input id="password" type="password" autocomplete="current-password" minlength="8" required>
-<p class="row"><button id="submit" type="submit">Sign in</button></p>
-</form>
-<p class="meta">
-<span id="switch-prompt">New here?</span>
-<button id="switch" class="link" type="button">Create an account</button>
-</p>
-</section>
-</main>
-<script type="module" src="/login.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Welcome · Recall</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body class="login-page">
+    <div class="login-story">
+      <a class="brand" href="/login.html"
+        ><span class="brand-icon">r.</span>Recall</a
+      >
+      <div class="story-content">
+        <p class="eyebrow">LESS REREADING. MORE REMEMBERING.</p>
+        <h1>Make what you learn<br /><em>stay with you.</em></h1>
+        <p>
+          Your notes become thoughtful questions.<br />A little practice turns
+          them into lasting knowledge.
+        </p>
+        <div class="study-illustration" aria-hidden="true">
+          <div class="illustration-sheet">
+            <span>YOUR NOTES</span><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="illustration-question">
+            <span>A MOMENT TO RECALL</span>
+            <p>How would you explain<br />it in your own words?</p>
+            <div>Think. Connect. Remember. ↗</div>
+          </div>
+        </div>
+      </div>
+      <div class="story-footer">
+        Built for understanding, one question at a time.
+      </div>
+    </div>
+    <main class="login-form-wrap">
+      <section class="login-card">
+        <span class="eyebrow">YOUR STUDY SPACE</span>
+        <h1 id="form-title">Welcome back.</h1>
+        <p class="subtitle">Pick up where your curiosity left off.</p>
+        <p id="login-message" class="message" role="status" hidden></p>
+        <form id="login-form">
+          <label for="email">Email address</label
+          ><input
+            id="email"
+            type="email"
+            autocomplete="email"
+            placeholder="you@example.com"
+            required
+          /><label for="password">Password</label
+          ><input
+            id="password"
+            type="password"
+            autocomplete="current-password"
+            minlength="8"
+            placeholder="At least 8 characters"
+            required
+          /><button id="submit" type="submit">Sign in →</button>
+        </form>
+        <p class="login-switch">
+          <span id="switch-prompt">New here?</span>
+          <button id="switch" class="link" type="button">
+            Create an account
+          </button>
+        </p>
+        <div class="demo-divider"><span>JUST LOOKING AROUND?</span></div>
+        <button id="demo-login" class="secondary">Explore the demo ↗</button>
+        <p class="meta demo-note">
+          Try a ready-made study session. No sign-up needed.
+        </p>
+      </section>
+    </main>
+    <script type="module" src="/login.js"></script>
+  </body>
 </html>

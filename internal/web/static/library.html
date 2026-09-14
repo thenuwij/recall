@@ -1,34 +1,125 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Library · Recall</title>
-<link rel="stylesheet" href="/style.css">
-</head>
-<body>
-<header>
-<span class="brand">Recall</span>
-<nav>
-<a href="/">Review</a>
-<a href="/library.html" aria-current="page">Library</a>
-<a href="/ask.html">Ask</a>
-</nav>
-<span id="account" class="account"></span>
-</header>
-<main>
-<h1>Library</h1>
-<div class="panel">
-<form id="upload" class="row">
-<input id="file" type="file" name="file" accept=".pdf,.txt,.md,.markdown" required>
-<button type="submit">Upload</button>
-</form>
-<p id="upload-message" class="message" hidden></p>
-</div>
-<h2>Documents</h2>
-<p id="list-message" class="message" hidden></p>
-<table class="documents"><tbody id="documents"></tbody></table>
-</main>
-<script type="module" src="/library.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Library · Recall</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/library.html"
+        ><span class="brand-icon" aria-hidden="true">r.</span>Recall<span
+          class="brand-caption"
+          >YOUR STUDY SPACE</span
+        ></a
+      >
+      <nav aria-label="Main navigation">
+        <a href="/library.html" aria-current="page">Library</a
+        ><a href="/" data-nav="review">Review</a
+        ><a href="/ask.html" data-nav="ask">Ask your notes</a>
+      </nav>
+      <span id="account" class="account"></span>
+    </header>
+    <main class="workspace">
+      <aside class="sidebar">
+        <div class="eyebrow">WORKSPACE</div>
+        <button class="side-item selected" id="all-documents">
+          All documents <span id="all-count"></span></button
+        ><button class="side-item" id="unfiled-documents">Unfiled</button>
+        <div class="sidebar-heading">
+          <span class="eyebrow">FOLDERS</span
+          ><button
+            id="new-folder"
+            class="icon-button"
+            aria-label="Create folder"
+          >
+            +
+          </button>
+        </div>
+        <div id="folders"></div>
+        <div class="sidebar-note">
+          <span class="tiny-mark">r.</span>
+          <p>A little practice.<br />A lasting understanding.</p>
+        </div>
+      </aside>
+      <div class="workspace-content">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">MAKE KNOWLEDGE STICK</p>
+            <h1 id="library-title">Your library</h1>
+            <p class="subtitle">Your notes, ready for a little practice.</p>
+          </div>
+          <a id="review-folder" class="button" href="/"
+            >Start review <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <section class="upload-panel">
+          <div class="upload-symbol" aria-hidden="true">↑</div>
+          <div>
+            <h2>Bring your notes to life</h2>
+            <p>
+              Upload a document. We’ll turn it into questions worth remembering.
+            </p>
+            <span class="meta">PDF, TXT or Markdown · up to 25 MB</span>
+          </div>
+          <form id="upload">
+            <label class="button secondary file-label" for="file"
+              >Choose a document<input
+                id="file"
+                type="file"
+                accept=".pdf,.txt,.md,.markdown"
+                required /></label
+            ><span id="file-name" class="meta"></span
+            ><button type="submit" id="upload-button" hidden>
+              Upload document
+            </button>
+          </form>
+        </section>
+        <p id="upload-message" class="message" role="status" hidden></p>
+        <div class="section-heading">
+          <h2 id="documents-title">All documents</h2>
+          <span id="document-count" class="meta"></span>
+        </div>
+        <p id="list-message" class="message" role="status" hidden></p>
+        <div id="documents" class="document-grid" aria-live="polite">
+          <div class="empty-state">Loading your library…</div>
+        </div>
+        <footer class="page-footer">
+          A place for your notes. A habit for your mind.
+        </footer>
+      </div>
+    </main>
+    <dialog id="folder-dialog">
+      <form id="folder-form">
+        <div class="section-heading">
+          <h2 id="folder-dialog-title">New folder</h2>
+          <button
+            type="button"
+            class="icon-button"
+            id="close-folder"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <label for="folder-name">Folder name</label
+        ><input
+          id="folder-name"
+          maxlength="80"
+          required
+          placeholder="e.g. Distributed systems"
+        />
+        <p id="folder-message" class="message" role="status" hidden></p>
+        <div class="dialog-actions">
+          <button type="button" class="secondary" id="cancel-folder">
+            Cancel</button
+          ><button type="submit">Save folder</button>
+        </div>
+      </form>
+    </dialog>
+    <script type="module" src="/library.js"></script>
+  </body>
 </html>

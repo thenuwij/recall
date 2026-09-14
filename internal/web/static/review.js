@@ -1,4 +1,11 @@
-import { mountAccount, api, el, renderPassage, showMessage, sourceLabel } from "/app.js";
+import {
+  mountAccount,
+  api,
+  el,
+  renderPassage,
+  showMessage,
+  sourceLabel,
+} from "/app.js";
 
 const dueCount = document.getElementById("due-count");
 const message = document.getElementById("review-message");
@@ -16,6 +23,14 @@ const resultNext = document.getElementById("result-next");
 const resultSource = document.getElementById("result-source");
 const nextButton = document.getElementById("next-card");
 
+const params = new URLSearchParams(location.search);
+const scope = new URLSearchParams({ limit: "100" });
+for (const key of ["folder_id", "document_id"])
+  if (params.has(key)) scope.set(key, params.get(key));
+if (params.get("name"))
+  document.getElementById("review-subtitle").textContent =
+    `Practising ${params.get("name")}`;
+const progress = document.getElementById("session-progress");
 let queue = [];
 let position = 0;
 
@@ -26,7 +41,7 @@ async function loadQueue() {
   showMessage(message, "", false);
 
   try {
-    const due = await api("/reviews/due?limit=100");
+    const due = await api(`/reviews/due?${scope}`);
     queue = due.cards;
     position = 0;
     if (queue.length === 0) {
@@ -48,10 +63,17 @@ function showEmpty(nextDueAt) {
       el("p", "message", `Your next card is due ${describeDue(nextDueAt)}.`),
     );
   } else {
-    const text = el("p", "message", "Nothing is scheduled. Upload lecture notes or slides in the ");
+    const text = el(
+      "p",
+      "message",
+      "Nothing is scheduled. Upload lecture notes or slides in the ",
+    );
     const link = el("a", "", "Library");
     link.href = "/library.html";
-    text.append(link, document.createTextNode(" and Recall will write questions from them."));
+    text.append(
+      link,
+      document.createTextNode(" and Recall will write questions from them."),
+    );
     empty.replaceChildren(el("strong", "", "No cards due."), text);
   }
   empty.hidden = false;
@@ -60,9 +82,13 @@ function showEmpty(nextDueAt) {
 function showCard() {
   const card = queue[position];
   const remaining = queue.length - position;
+  progress.max = queue.length;
+  progress.value = position;
   dueCount.textContent = `${remaining} ${remaining === 1 ? "card" : "cards"} due`;
 
-  cardSource.textContent = card.is_new ? `New · ${sourceLabel(card.title, card.page)}` : sourceLabel(card.title, card.page);
+  cardSource.textContent = card.is_new
+    ? `New · ${sourceLabel(card.title, card.page)}`
+    : sourceLabel(card.title, card.page);
   cardQuestion.textContent = card.question;
   answer.value = "";
   result.hidden = true;
@@ -125,7 +151,13 @@ function gradeClass(score) {
 function describeDue(value) {
   const due = new Date(value);
   const hours = Math.round((due - Date.now()) / 3600000);
-  const when = due.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  const when = due.toLocaleString([], {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
   if (hours < 1) {
     return `within the hour (${when})`;
   }
@@ -154,7 +186,19 @@ nextButton.addEventListener("click", () => {
     showCard();
     return;
   }
-  loadQueue();
+  progress.value = queue.length;
+  cardPanel.hidden = true;
+  result.hidden = true;
+  dueCount.textContent = "Session complete";
+  empty.replaceChildren(
+    el("strong", "", "A little more remembered."),
+    el(
+      "p",
+      "",
+      "You’ve finished this session. Come back when your next questions are due.",
+    ),
+  );
+  empty.hidden = false;
 });
 
 loadQueue();

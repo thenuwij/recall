@@ -14,7 +14,9 @@ export async function api(path, options) {
     body = await response.json().catch(() => null);
   }
   if (!response.ok) {
-    throw new Error(body && body.error ? body.error : `Request failed (${response.status})`);
+    throw new Error(
+      body && body.error ? body.error : `Request failed (${response.status})`,
+    );
   }
   return body;
 }
@@ -76,7 +78,14 @@ export async function showContext(container, chunkID) {
 export function renderPassage(container, context) {
   const text = el("div", "text");
   const mark = el("mark", "", context.passage);
-  text.append(document.createTextNode(context.before), mark, document.createTextNode(context.after));
-  container.replaceChildren(el("div", "source", sourceLabel(context.title, context.page)), text);
+  text.append(
+    document.createTextNode(context.before),
+    mark,
+    document.createTextNode(context.after),
+  );
+  container.replaceChildren(
+    el("div", "source", sourceLabel(context.title, context.page)),
+    text,
+  );
   return mark;
 }

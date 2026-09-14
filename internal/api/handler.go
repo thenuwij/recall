@@ -29,14 +29,15 @@ var (
 )
 
 type documentStore interface {
+	libraryStore
 	createDocument(ctx context.Context, doc newDocument, chunks []chunking.Chunk) (string, string, error)
 	getDocument(ctx context.Context, id, userID string) (document, error)
 	listDocuments(ctx context.Context, userID string) ([]documentSummary, error)
 	deleteDocument(ctx context.Context, id, userID string) error
 	chunkLocation(ctx context.Context, chunkID, userID string) (chunkLocation, error)
 	searchChunks(ctx context.Context, queryEmbedding []float32, model string, limit int, userID string) ([]searchResult, error)
-	dueCards(ctx context.Context, limit, newCardCap int, userID string) ([]dueCard, error)
-	nextDueAt(ctx context.Context, userID string, newCardCap int) (*time.Time, error)
+	dueCards(ctx context.Context, limit, newCardCap int, userID string, scopes ...reviewScope) ([]dueCard, error)
+	nextDueAt(ctx context.Context, userID string, newCardCap int, scopes ...reviewScope) (*time.Time, error)
 	reviewCard(ctx context.Context, cardID, userID string) (reviewCard, error)
 	recordReview(ctx context.Context, review newReview) error
 	countDocuments(ctx context.Context, userID string) (int, error)
@@ -125,6 +126,11 @@ func NewHandler(store documentStore, embedder embeddingGenerator, generator answ
 	mux.HandleFunc("GET /auth/me", h.requireUser(h.currentUser))
 	mux.HandleFunc("POST /documents", h.requireUser(h.submitDocument))
 	mux.HandleFunc("POST /documents/upload", h.requireUser(h.uploadDocument))
+	mux.HandleFunc("GET /folders", h.requireUser(h.folders))
+	mux.HandleFunc("POST /folders", h.requireUser(h.folders))
+	mux.HandleFunc("PATCH /folders/{id}", h.requireUser(h.folders))
+	mux.HandleFunc("DELETE /folders/{id}", h.requireUser(h.folders))
+	mux.HandleFunc("PATCH /documents/{id}/folder", h.requireUser(h.moveDocument))
 	mux.HandleFunc("GET /documents", h.requireUser(h.listDocuments))
 	mux.HandleFunc("GET /documents/{id}", h.requireUser(h.getDocument))
 	mux.HandleFunc("DELETE /documents/{id}", h.requireUser(h.deleteDocument))

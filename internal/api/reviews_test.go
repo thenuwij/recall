@@ -36,7 +36,7 @@ func (g *fakeGenerator) GradeAnswer(_ context.Context, question, expectedAnswer,
 	return g.grade, nil
 }
 
-func (s *memoryStore) dueCards(_ context.Context, limit, newCardCap int, _ string) ([]dueCard, error) {
+func (s *memoryStore) dueCards(_ context.Context, limit, newCardCap int, _ string, scopes ...reviewScope) ([]dueCard, error) {
 	s.dueCalls = append(s.dueCalls, dueCall{limit: limit, newCardCap: newCardCap})
 	if s.err != nil {
 		return nil, s.err
@@ -44,7 +44,7 @@ func (s *memoryStore) dueCards(_ context.Context, limit, newCardCap int, _ strin
 	return s.due, nil
 }
 
-func (s *memoryStore) nextDueAt(_ context.Context, _ string, _ int) (*time.Time, error) {
+func (s *memoryStore) nextDueAt(_ context.Context, _ string, _ int, scopes ...reviewScope) (*time.Time, error) {
 	if s.err != nil {
 		return nil, s.err
 	}

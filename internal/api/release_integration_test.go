@@ -93,3 +93,57 @@ func TestPostgresAbandonedFinalAttemptIsTerminal(t *testing.T) {
 		t.Fatal("final crash not marked failed")
 	}
 }
+func TestPostgresFoldersScopeReviewsAndKeepDocuments(t *testing.T) {
+	pool := testPool(t)
+	s := NewPostgresStore(pool)
+	ctx := context.Background()
+	f, err := s.saveFolder(ctx, "", testOwnerID, "Systems")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := createTestDocument(t, s, pool, newDocument{SourceType: sourceText, Content: "one two three four"})
+	other := createTestDocument(t, s, pool, newDocument{SourceType: sourceText, Content: "five six seven eight"})
+	// Claim fixtures by id rather than relying on ordering across documents.
+	for _, docID := range []string{id, other} {
+		var jobID string
+		if err := pool.QueryRow(ctx, `UPDATE ingestion_jobs SET state='processing',attempts=1 WHERE document_id=$1 RETURNING id::text`, docID).Scan(&jobID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.completeIngestionJob(ctx, jobID, 1, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := pool.QueryRow(ctx, `UPDATE ingestion_jobs SET state='processing',attempts=1 WHERE document_id=$1 AND kind='generate_cards' RETURNING id::text`, docID).Scan(&jobID); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.completeCardJob(ctx, jobID, 1, []newCard{{ChunkID: firstChunkID(t, pool, docID), Question: docID, ExpectedAnswer: "answer"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.moveDocument(ctx, id, testOwnerID, f.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []reviewScope{{FolderID: f.ID}, {DocumentID: id}} {
+		cards, err := s.dueCards(ctx, 100, 20, testOwnerID, scope)
+		if err != nil || len(cards) != 1 || cards[0].Question != id {
+			t.Fatalf("scope leaked: %+v %v", cards, err)
+		}
+	}
+	if err := s.moveDocument(ctx, id, testOwnerID, "00000000-0000-0000-0000-00000000abcd"); !errors.Is(err, errFolderNotFound) {
+		t.Fatalf("unknown folder accepted: %v", err)
+	}
+	if _, err := s.saveFolder(ctx, f.ID, "00000000-0000-0000-0000-00000000abcd", "Intruder"); !errors.Is(err, errFolderNotFound) {
+		t.Fatalf("cross-user rename: %v", err)
+	}
+	if err := s.deleteFolder(ctx, f.ID, testOwnerID); err != nil {
+		t.Fatal(err)
+	}
+	docs, err := s.listDocuments(ctx, testOwnerID)
+	if err != nil || len(docs) != 2 {
+		t.Fatalf("documents lost: %v", err)
+	}
+	for _, doc := range docs {
+		if doc.FolderID != "" {
+			t.Fatal("folder not cleared")
+		}
+	}
+}

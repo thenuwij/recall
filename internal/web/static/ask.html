@@ -1,33 +1,42 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ask · Recall</title>
-<link rel="stylesheet" href="/style.css">
-</head>
-<body>
-<header>
-<span class="brand">Recall</span>
-<nav>
-<a href="/">Review</a>
-<a href="/library.html">Library</a>
-<a href="/ask.html" aria-current="page">Ask</a>
-</nav>
-<span id="account" class="account"></span>
-</header>
-<main>
-<h1>Ask your documents</h1>
-<div class="panel">
-<form id="ask">
-<textarea id="question" placeholder="What do you want to know?" required></textarea>
-<p><button type="submit">Ask</button></p>
-</form>
-</div>
-<p id="ask-message" class="message" hidden></p>
-<section id="result" hidden></section>
-<section id="context" class="context panel" hidden></section>
-</main>
-<script type="module" src="/ask.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ask · Recall</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/library.html"
+        ><span class="brand-icon" aria-hidden="true">r.</span>Recall<span
+          class="brand-caption"
+          >YOUR STUDY SPACE</span
+        ></a
+      >
+      <nav aria-label="Main navigation">
+        <a href="/library.html" data-nav="library">Library</a
+        ><a href="/" data-nav="review">Review</a
+        ><a href="/ask.html" aria-current="page">Ask your notes</a>
+      </nav>
+      <span id="account" class="account"></span>
+    </header>
+    <main>
+      <h1>Ask your documents</h1>
+      <div class="panel">
+        <form id="ask">
+          <textarea
+            id="question"
+            placeholder="What do you want to know?"
+            required
+          ></textarea>
+          <p><button type="submit">Ask</button></p>
+        </form>
+      </div>
+      <p id="ask-message" class="message" hidden></p>
+      <section id="result" hidden></section>
+      <section id="context" class="context panel" hidden></section>
+    </main>
+    <script type="module" src="/ask.js"></script>
+  </body>
 </html>

@@ -17,6 +17,7 @@ import (
 )
 
 type memoryStore struct {
+	libraryStore
 	mu        sync.RWMutex
 	documents map[string]document
 	chunks    map[string][]chunking.Chunk

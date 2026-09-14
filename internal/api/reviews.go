@@ -17,6 +17,8 @@ import (
 	"github.com/thenujawijesuriya/recall/internal/scheduling"
 )
 
+type reviewScope struct{ DocumentID, FolderID string }
+
 const (
 	defaultDueLimit           = 20
 	maxDueLimit               = 100
@@ -101,7 +103,12 @@ func (h *handler) dueReviews(w http.ResponseWriter, r *http.Request) {
 	}
 
 	account, _ := userFromContext(r.Context())
-	cards, err := h.store.dueCards(r.Context(), limit, newCardsPerDay, account.ID)
+	scope := reviewScope{DocumentID: r.URL.Query().Get("document_id"), FolderID: r.URL.Query().Get("folder_id")}
+	if (scope.DocumentID != "" && !validID(scope.DocumentID)) || (scope.FolderID != "" && !validID(scope.FolderID)) {
+		writeJSON(w, 400, errorResponse{Error: "invalid review scope"})
+		return
+	}
+	cards, err := h.store.dueCards(r.Context(), limit, newCardsPerDay, account.ID, scope)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not load due cards"})
 		return
@@ -110,7 +117,7 @@ func (h *handler) dueReviews(w http.ResponseWriter, r *http.Request) {
 		cards = make([]dueCard, 0)
 	}
 
-	nextDueAt, err := h.store.nextDueAt(r.Context(), account.ID, newCardsPerDay)
+	nextDueAt, err := h.store.nextDueAt(r.Context(), account.ID, newCardsPerDay, scope)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "could not load due cards"})
 		return
@@ -220,7 +227,7 @@ func (h *handler) submitReview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int, userID string) ([]dueCard, error) {
+func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int, userID string, scopes ...reviewScope) ([]dueCard, error) {
 	const reviewQuery = `
 		SELECT k.id::text, k.question, COALESCE(d.title, ''), c.page_number
 		FROM card_schedule s
@@ -229,11 +236,12 @@ func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int, use
 		JOIN documents d ON d.id = c.document_id
 		WHERE s.due_at <= now()
 		    AND d.user_id = $2
+ AND ($3 = '' OR d.id = NULLIF($3,'')::uuid) AND ($4 = '' OR d.folder_id = NULLIF($4,'')::uuid)
 		    AND EXISTS (SELECT 1 FROM reviews r WHERE r.card_id = k.id)
 		ORDER BY s.due_at, k.id
 		LIMIT $1
 	`
-	cards, err := s.queryDueCards(ctx, reviewQuery, limit, userID, false)
+	cards, err := s.queryDueCards(ctx, reviewQuery, limit, userID, false, scopes...)
 	if err != nil {
 		return nil, err
 	}
@@ -269,11 +277,12 @@ func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int, use
 		JOIN documents d ON d.id = c.document_id
 		WHERE s.due_at <= now()
 		    AND d.user_id = $2
+ AND ($3 = '' OR d.id = NULLIF($3,'')::uuid) AND ($4 = '' OR d.folder_id = NULLIF($4,'')::uuid)
 		    AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r.card_id = k.id)
 		ORDER BY s.due_at, c.chunk_index, k.id
 		LIMIT $1
 	`
-	newCards, err := s.queryDueCards(ctx, newQuery, newLimit, userID, true)
+	newCards, err := s.queryDueCards(ctx, newQuery, newLimit, userID, true, scopes...)
 	if err != nil {
 		return nil, err
 	}
@@ -281,8 +290,12 @@ func (s *PostgresStore) dueCards(ctx context.Context, limit, newCardCap int, use
 	return append(cards, newCards...), nil
 }
 
-func (s *PostgresStore) queryDueCards(ctx context.Context, query string, limit int, userID string, isNew bool) ([]dueCard, error) {
-	rows, err := s.pool.Query(ctx, query, limit, userID)
+func (s *PostgresStore) queryDueCards(ctx context.Context, query string, limit int, userID string, isNew bool, scopes ...reviewScope) ([]dueCard, error) {
+	scope := reviewScope{}
+	if len(scopes) > 0 {
+		scope = scopes[0]
+	}
+	rows, err := s.pool.Query(ctx, query, limit, userID, scope.DocumentID, scope.FolderID)
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +316,7 @@ func (s *PostgresStore) queryDueCards(ctx context.Context, query string, limit i
 	return cards, nil
 }
 
-func (s *PostgresStore) nextDueAt(ctx context.Context, userID string, newCardCap int) (*time.Time, error) {
+func (s *PostgresStore) nextDueAt(ctx context.Context, userID string, newCardCap int, scopes ...reviewScope) (*time.Time, error) {
 	const query = `
 		WITH introduced AS (
 			SELECT min(r.reviewed_at) AS first_reviewed_at
@@ -321,7 +334,7 @@ func (s *PostgresStore) nextDueAt(ctx context.Context, userID string, newCardCap
 			JOIN cards k ON k.id = s.card_id
 			JOIN document_chunks c ON c.id = k.chunk_id
 			JOIN documents d ON d.id = c.document_id
-			WHERE s.due_at > now() AND d.user_id = $1
+			WHERE s.due_at > now() AND d.user_id = $1 AND ($3='' OR d.id=NULLIF($3,'')::uuid) AND ($4='' OR d.folder_id=NULLIF($4,'')::uuid)
 		),
 		withheld AS (
 			SELECT count(*) AS waiting
@@ -329,7 +342,7 @@ func (s *PostgresStore) nextDueAt(ctx context.Context, userID string, newCardCap
 			JOIN cards k ON k.id = s.card_id
 			JOIN document_chunks c ON c.id = k.chunk_id
 			JOIN documents d ON d.id = c.document_id
-			WHERE d.user_id = $1
+			WHERE d.user_id = $1 AND ($3='' OR d.id=NULLIF($3,'')::uuid) AND ($4='' OR d.folder_id=NULLIF($4,'')::uuid)
 			    AND s.due_at <= now()
 			    AND NOT EXISTS (SELECT 1 FROM reviews r WHERE r.card_id = k.id)
 		)
@@ -343,8 +356,12 @@ func (s *PostgresStore) nextDueAt(ctx context.Context, userID string, newCardCap
 		)
 	`
 
+	scope := reviewScope{}
+	if len(scopes) > 0 {
+		scope = scopes[0]
+	}
 	var next *time.Time
-	if err := s.pool.QueryRow(ctx, query, userID, newCardCap).Scan(&next); err != nil {
+	if err := s.pool.QueryRow(ctx, query, userID, newCardCap, scope.DocumentID, scope.FolderID).Scan(&next); err != nil {
 		return nil, err
 	}
 

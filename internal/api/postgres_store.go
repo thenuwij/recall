@@ -179,7 +179,7 @@ func (s *PostgresStore) searchChunks(ctx context.Context, queryEmbedding []float
 
 func (s *PostgresStore) listDocuments(ctx context.Context, userID string) ([]documentSummary, error) {
 	const query = `
-		SELECT d.id::text, COALESCE(d.title, ''), d.source_type, d.locked, d.created_at, e.state, c.state,
+		SELECT COALESCE(d.folder_id::text,''), d.id::text, COALESCE(d.title, ''), d.source_type, d.locked, d.created_at, e.state, c.state,
 			(
 				SELECT count(*)
 				FROM cards
@@ -203,7 +203,7 @@ func (s *PostgresStore) listDocuments(ctx context.Context, userID string) ([]doc
 	for rows.Next() {
 		var summary documentSummary
 		var state, cardState *string
-		if err := rows.Scan(&summary.ID, &summary.Title, &summary.SourceType, &summary.Locked, &summary.CreatedAt, &state, &cardState, &summary.CardCount); err != nil {
+		if err := rows.Scan(&summary.FolderID, &summary.ID, &summary.Title, &summary.SourceType, &summary.Locked, &summary.CreatedAt, &state, &cardState, &summary.CardCount); err != nil {
 			return nil, err
 		}
 		summary.Status = ingestionStatus(state)

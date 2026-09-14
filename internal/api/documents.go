@@ -18,6 +18,7 @@ var (
 )
 
 type documentSummary struct {
+	FolderID    string    `json:"folder_id"`
 	ID          string    `json:"id"`
 	Title       string    `json:"title,omitempty"`
 	SourceType  string    `json:"source_type"`

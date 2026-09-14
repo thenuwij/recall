@@ -1,48 +1,88 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Review · Recall</title>
-<link rel="stylesheet" href="/style.css">
-</head>
-<body>
-<header>
-<span class="brand">Recall</span>
-<nav>
-<a href="/" aria-current="page">Review</a>
-<a href="/library.html">Library</a>
-<a href="/ask.html">Ask</a>
-</nav>
-<span id="account" class="account"></span>
-</header>
-<main>
-<div class="heading">
-<h1>Review</h1>
-<span id="due-count" class="meta"></span>
-</div>
-<p id="review-message" class="message" hidden></p>
-<section id="empty" class="panel" hidden></section>
-<section id="card" class="panel" hidden>
-<div id="card-source" class="meta"></div>
-<p id="card-question" class="question"></p>
-<form id="answer-form">
-<textarea id="answer" placeholder="Answer from memory, in your own words" maxlength="2000" required></textarea>
-<p class="row"><button type="submit">Check answer</button><span class="meta">⌘/Ctrl + Enter</span></p>
-</form>
-</section>
-<section id="result" hidden>
-<div class="panel">
-<p id="result-grade" class="grade"></p>
-<p id="result-rationale"></p>
-<div class="meta">Expected answer</div>
-<p id="result-expected"></p>
-<p id="result-next" class="meta"></p>
-<p><button id="next-card" type="button">Next card</button></p>
-</div>
-<div id="result-source" class="context panel" hidden></div>
-</section>
-</main>
-<script type="module" src="/review.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Review · Recall</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/library.html"
+        ><span class="brand-icon" aria-hidden="true">r.</span>Recall<span
+          class="brand-caption"
+          >YOUR STUDY SPACE</span
+        ></a
+      >
+      <nav aria-label="Main navigation">
+        <a href="/library.html" data-nav="library">Library</a
+        ><a href="/" aria-current="page">Review</a
+        ><a href="/ask.html" data-nav="ask">Ask your notes</a>
+      </nav>
+      <span id="account" class="account"></span>
+    </header>
+    <main class="review-layout">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">ONE QUESTION AT A TIME</p>
+          <h1>Make it stick.</h1>
+          <p class="subtitle" id="review-subtitle">
+            A little recall today. A little less forgetting tomorrow.
+          </p>
+        </div>
+        <a class="text-link" href="/library.html">Back to library ↗</a>
+      </div>
+      <div class="review-toolbar">
+        <span class="eyebrow">YOUR PRACTICE SESSION</span
+        ><span id="due-count" class="meta">Loading questions…</span>
+      </div>
+      <progress
+        id="session-progress"
+        max="1"
+        value="0"
+        aria-label="Session progress"
+      ></progress>
+      <p id="review-message" class="message" role="status" hidden></p>
+      <section id="empty" class="panel empty-state" hidden></section>
+      <section id="card" class="panel question-panel" hidden>
+        <div id="card-source" class="source-tag"></div>
+        <p id="card-question" class="question"></p>
+        <form id="answer-form">
+          <label for="answer" class="eyebrow">YOUR ANSWER</label
+          ><textarea
+            id="answer"
+            placeholder="Take a moment. Explain it in your own words…"
+            maxlength="2000"
+            required
+          ></textarea>
+          <div class="answer-actions">
+            <span class="meta">Meaning matters more than perfect wording.</span
+            ><button type="submit">
+              Check answer <span aria-hidden="true">→</span>
+            </button>
+          </div>
+          <div class="keyboard-hint">⌘ / Ctrl + Enter to check</div>
+        </form>
+      </section>
+      <section id="result" hidden>
+        <div class="panel feedback-panel">
+          <p id="result-grade" class="grade"></p>
+          <p id="result-rationale"></p>
+          <div class="eyebrow">SUGGESTED ANSWER</div>
+          <p id="result-expected"></p>
+          <div class="answer-actions">
+            <p id="result-next" class="meta"></p>
+            <button id="next-card" type="button">Continue →</button>
+          </div>
+        </div>
+        <div id="result-source" class="context panel" hidden></div>
+      </section>
+      <footer class="page-footer">
+        Understand it. Recall it. Make it yours.
+      </footer>
+    </main>
+    <script type="module" src="/review.js"></script>
+  </body>
 </html>

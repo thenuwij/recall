@@ -1,4 +1,11 @@
-import { mountAccount, api, el, showContext, showMessage, sourceLabel } from "/app.js";
+import {
+  mountAccount,
+  api,
+  el,
+  showContext,
+  showMessage,
+  sourceLabel,
+} from "/app.js";
 
 const form = document.getElementById("ask");
 const question = document.getElementById("question");
@@ -32,14 +39,18 @@ form.addEventListener("submit", async (event) => {
 function renderAnswer(answer) {
   if (answer.refused) {
     const panel = el("div", "panel refusal");
-    panel.append(el("strong", "", "Your documents don't contain enough to answer this."));
+    panel.append(
+      el("strong", "", "Your documents don't contain enough to answer this."),
+    );
     panel.append(el("p", "message", answer.reason));
     result.replaceChildren(panel);
     result.hidden = false;
     return;
   }
 
-  const citations = new Map(answer.citations.map((citation) => [citation.marker, citation]));
+  const citations = new Map(
+    answer.citations.map((citation) => [citation.marker, citation]),
+  );
 
   const text = el("div", "answer");
   for (const part of answer.answer.split(/(\[\d+\])/)) {
@@ -49,7 +60,9 @@ function renderAnswer(answer) {
       const marker = el("button", "marker", part);
       marker.type = "button";
       marker.title = sourceLabel(citation.title, citation.page);
-      marker.addEventListener("click", () => showContext(context, citation.chunk_id));
+      marker.addEventListener("click", () =>
+        showContext(context, citation.chunk_id),
+      );
       text.append(marker);
     } else {
       text.append(document.createTextNode(part));
@@ -58,9 +71,15 @@ function renderAnswer(answer) {
 
   const list = el("div", "citations");
   for (const citation of answer.citations) {
-    const button = el("button", "plain", `[${citation.marker}] ${sourceLabel(citation.title, citation.page)}`);
+    const button = el(
+      "button",
+      "plain",
+      `[${citation.marker}] ${sourceLabel(citation.title, citation.page)}`,
+    );
     button.type = "button";
-    button.addEventListener("click", () => showContext(context, citation.chunk_id));
+    button.addEventListener("click", () =>
+      showContext(context, citation.chunk_id),
+    );
     list.append(button);
   }
 
