@@ -1,6 +1,10 @@
 # Recall
 
 [![CI](https://github.com/thenuwij/recall/actions/workflows/ci.yml/badge.svg)](https://github.com/thenuwij/recall/actions/workflows/ci.yml)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
 Recall turns your notes into practice questions and schedules reviews using spaced repetition. Answer in your own words, get feedback against the source passage, and return to the original PDF when you need more context.
 
@@ -22,6 +26,8 @@ The demo account is `demo@recall.app` / `recalldemo123`. It includes practice qu
 - **Ask your notes:** the existing Ask screen searches your library and returns answers with source citations.
 
 The interface adapts to phone, tablet and desktop, and follows your system's light or dark appearance.
+
+Scanned or image-only PDFs aren't supported yet — run them through OCR before uploading.
 
 ## Run locally
 
@@ -77,36 +83,13 @@ Embeddings, question generation and grading use direct HTTP calls in [`internal/
 
 Original PDFs are stored in a separate Postgres table and served through authenticated, owner-scoped endpoints. This keeps file retention and backups in one storage system. Deleting a document also removes its file, questions and review history; deleting a folder only unfiles its documents.
 
-## Testing and performance
-
-With Go and `pdftotext` installed:
+## Testing
 
 ```sh
 go test -race ./...
 ```
 
-To include database and Redis tests, start the Compose services and run:
-
-```sh
-RECALL_TEST_DATABASE_URL='postgres://recall:recall@localhost:5434/recall?sslmode=disable' \
-RECALL_TEST_REDIS_URL='redis://localhost:6381/0' \
-go test -race -count=1 ./...
-```
-
-Postgres tests create and remove their own schemas, including migrations. The test database account needs permission to create schemas and the vector extension. Redis tests use separate stream names. CI provisions both services and runs the suite with the race detector.
-
-Coverage includes expired claims, stale worker updates, duplicate completion, retry exhaustion, folder review isolation, private PDF access, byte-range responses and concurrent review submissions.
-
-These are historical measurements from earlier individual runs, not guarantees for the current release:
-
-| Measurement | Result | Context |
-|---|---|---|
-| Search, 40,000 chunks | p50: 416 ms; p95: 502 ms | Exact scan, no vector index |
-| Search, 5,000 chunks | p50: 36 ms; p95: 40 ms | Exact scan, no vector index |
-| Worker shutdown | About 30 s → 1.28 s | After introducing the bounded worker pool |
-| Restore drill | 8 s | Small, 184 KB database |
-
-The opt-in search test is `TestPostgresSearchLatencyAtScale`, configured through `RECALL_SCALE_DOCUMENTS`.
+Full coverage, including Postgres and Redis, runs in CI on every push. Tests cover expired claims, stale worker updates, duplicate completion, retry exhaustion, folder review isolation, private PDF access and concurrent review submissions.
 
 ## Deployment
 
@@ -119,15 +102,6 @@ docker compose -f compose.yaml -f compose.prod.yaml up -d --build
 Caddy handles TLS. Only SSH and HTTP/HTTPS ports are published in production; the API, worker, Postgres and Redis use the internal network. The API and worker retry database connections during startup.
 
 A systemd timer runs [nightly backups](scripts/backup.sh) to a private S3 bucket with seven-day retention. The database dump includes original PDFs. The [restore drill](scripts/restore-drill.sh) restores a backup into a temporary database and compares table row counts. Lightsail snapshots provide another recovery option.
-
-## Limitations
-
-- Q&A is the only card format. Folder reviews follow due dates rather than document-size weighting.
-- Source excerpts are highlighted in the feedback panel; original PDF pages are shown without phrase overlays.
-- PDFs uploaded before file retention was added have extracted text only. Re-upload to retain the original; existing review progress is left intact.
-- Scanned or image-only PDFs need OCR elsewhere before upload. Extraction and page text order can vary with complex layouts.
-- AI grading can make mistakes. A small manual smoke check is not a comprehensive quality evaluation.
-- Vector search is an exact scan, and the single server is a single point of failure. Deployment and database upgrades are manual.
 
 ## License
 
