@@ -233,13 +233,6 @@ h3 {
   text-align: center;
   padding-right: 3px;
 }
-.brand-caption {
-  font-size: 8px;
-  letter-spacing: 1.4px;
-  margin-left: 10px;
-  color: var(--muted);
-  font-weight: 500;
-}
 .app-header nav {
   display: flex;
   align-self: stretch;
@@ -341,19 +334,8 @@ main {
   align-self: center;
   font-size: 14px;
 }
-.sidebar-note {
-  margin-top: auto;
-  padding: 60px 12px 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.8;
-}
-.tiny-mark {
-  font: italic 30px Georgia;
-  color: var(--accent);
-}
 .workspace-content {
-  padding: 48px 48px 0;
+  padding: 48px;
   min-width: 0;
   width: 100%;
   max-width: 1400px;
@@ -627,12 +609,22 @@ main {
   max-width: 420px;
   margin: 0 auto 16px;
 }
-.page-footer {
-  padding: 42px 0 24px;
-  text-align: center;
+.nav-count {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.steps {
+  max-width: 420px;
+  margin: 18px auto 24px;
+  padding-left: 20px;
+  text-align: left;
   color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.3px;
+  line-height: 1.9;
 }
 .message {
   font-size: 13px;
@@ -858,108 +850,18 @@ dialog .section-heading {
   margin-top: 24px;
 }
 .login-page {
-  display: grid;
-  grid-template-columns: 1.1fr 1fr;
   min-height: 100vh;
-}
-.login-story {
-  background: var(--soft);
-  padding: 38px 50px;
   display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--border);
-}
-.story-content {
-  margin: auto 0;
-  padding: 65px 0 35px;
-}
-.story-content h1 {
-  font:
-    48px/1.17 Georgia,
-    serif;
-  letter-spacing: -1.5px;
-  margin: 20px 0;
-}
-.story-content em {
-  font-weight: 400;
-  color: var(--accent);
-}
-.story-content > p:not(.eyebrow) {
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.9;
-}
-.story-footer {
-  font-size: 10px;
-  color: var(--muted);
-}
-.study-illustration {
-  position: relative;
-  height: 210px;
-  margin: 35px 0 0;
-  max-width: 380px;
-}
-.illustration-sheet {
-  position: absolute;
-  left: 12px;
-  top: 0;
-  transform: rotate(-8deg);
-  width: 190px;
-  height: 170px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 23px;
-  box-shadow: var(--shadow);
-}
-.illustration-sheet span,
-.illustration-question > span {
-  font-size: 8px;
-  letter-spacing: 1.4px;
-  color: var(--muted);
-}
-.illustration-sheet i {
-  display: block;
-  height: 5px;
-  border-radius: 2px;
-  background: var(--border);
-  margin-top: 15px;
-}
-.illustration-sheet i:nth-child(3) {
-  width: 70%;
-  background: var(--mark);
-}
-.illustration-question {
-  position: absolute;
-  right: 0;
-  top: 35px;
-  transform: rotate(4deg);
-  width: 248px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 24px;
-  box-shadow: 0 12px 30px #223d2510;
-}
-.illustration-question p {
-  font:
-    20px/1.5 Georgia,
-    serif;
-  margin: 15px 0;
-}
-.illustration-question > div {
-  font-size: 9px;
-  color: var(--accent);
-  border-top: 1px solid var(--border);
-  padding-top: 13px;
 }
 .login-form-wrap {
+  margin: auto;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 50px;
+  gap: 40px;
+  padding: 50px 24px;
   width: 100%;
-  max-width: none;
+  max-width: 398px;
 }
 .login-card {
   width: 100%;
@@ -1022,14 +924,8 @@ dialog .section-heading {
   .document-card {
     min-height: 255px;
   }
-  .login-story {
-    padding-left: 10vw;
-  }
 }
 @media (max-width: 1100px) {
-  .brand-caption {
-    display: none;
-  }
   .app-header {
     gap: 32px;
     padding: 0 24px;
@@ -1038,7 +934,7 @@ dialog .section-heading {
     grid-template-columns: 185px minmax(0, 1fr);
   }
   .workspace-content {
-    padding: 36px 28px 0;
+    padding: 36px 28px;
   }
   .document-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1048,12 +944,6 @@ dialog .section-heading {
   }
   .upload-symbol {
     display: none;
-  }
-  .login-story {
-    padding: 30px;
-  }
-  .story-content h1 {
-    font-size: 39px;
   }
 }
 @media (max-width: 760px) {
@@ -1087,8 +977,7 @@ dialog .section-heading {
     padding: 16px 20px;
     display: block;
   }
-  .sidebar > .eyebrow,
-  .sidebar-note {
+  .sidebar > .eyebrow {
     display: none;
   }
   .sidebar > .side-item {
@@ -1113,7 +1002,7 @@ dialog .section-heading {
     width: auto;
   }
   .workspace-content {
-    padding: 28px 20px 0;
+    padding: 28px 20px;
   }
   h1 {
     font-size: 28px;
@@ -1169,35 +1058,6 @@ dialog .section-heading {
   }
   .answer-actions > .meta {
     font-size: 11px;
-  }
-  .login-page {
-    display: block;
-  }
-  .login-story {
-    padding: 24px;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .story-content {
-    padding: 26px 0 5px;
-  }
-  .story-content h1 {
-    font-size: 34px;
-    margin: 12px 0;
-  }
-  .story-content > .eyebrow {
-    font-size: 8px;
-  }
-  .story-content > p:not(.eyebrow),
-  .study-illustration,
-  .story-footer {
-    display: none;
-  }
-  .login-form-wrap {
-    padding: 34px 24px;
-  }
-  .login-card {
-    max-width: 420px;
   }
   .row {
     flex-wrap: wrap;

@@ -67,7 +67,7 @@ document
         }),
         allowUnauthorized: true,
       });
-      location.href = "/library.html";
+      location.href = "/";
     } catch (error) {
       showMessage(message, error.message, true);
       button.disabled = false;

@@ -36,8 +36,17 @@ export async function mountAccount() {
   });
 
   container.replaceChildren(el("span", "meta", account.email), signOut);
+  showDueCount();
 
   return account;
+}
+
+async function showDueCount() {
+  const link = document.querySelector('.app-header nav a[href="/"]');
+  const due = await api("/reviews/due?limit=100");
+  if (link && due.cards.length > 0) {
+    link.append(el("span", "nav-count", String(due.cards.length)));
+  }
 }
 
 export function el(tag, className, text) {
