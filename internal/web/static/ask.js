@@ -13,6 +13,13 @@ const message = document.getElementById("ask-message");
 const result = document.getElementById("result");
 const context = document.getElementById("context");
 
+question.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    form.requestSubmit();
+  }
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = form.querySelector("button");

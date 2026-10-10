@@ -43,7 +43,7 @@ form.addEventListener("submit", async (event) => {
       body,
       allowUnauthorized: true,
     });
-    window.location.href = "/";
+    window.location.href = "/library.html";
   } catch (error) {
     showMessage(message, error.message, true);
     submit.disabled = false;
@@ -67,7 +67,7 @@ document
         }),
         allowUnauthorized: true,
       });
-      location.href = "/";
+      location.href = "/library.html";
     } catch (error) {
       showMessage(message, error.message, true);
       button.disabled = false;

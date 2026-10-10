@@ -3,6 +3,7 @@ import {
   api,
   el,
   renderPassage,
+  showDueCount,
   showMessage,
   sourceLabel,
 } from "/app.js";
@@ -81,7 +82,7 @@ async function showEmpty(nextDueAt) {
   } else if (documents.length === 0) {
     const steps = el("ol", "steps");
     steps.append(
-      el("li", "", "Upload a PDF, text or Markdown file in the Library."),
+      el("li", "", "Upload a PDF, text or Markdown file in Notes."),
       el("li", "", "Recall writes questions from it, usually within a minute."),
       el(
         "li",
@@ -89,7 +90,7 @@ async function showEmpty(nextDueAt) {
         "Answer them here. Each question comes back just before you would forget it.",
       ),
     );
-    const upload = el("a", "button", "Go to Library");
+    const upload = el("a", "button", "Go to Notes");
     upload.href = "/library.html";
     empty.replaceChildren(
       el("strong", "", "Start by adding your notes"),
@@ -100,9 +101,9 @@ async function showEmpty(nextDueAt) {
     const text = el(
       "p",
       "message",
-      "Nothing is scheduled. Upload lecture notes or slides in the ",
+      "Nothing is scheduled. Upload lecture notes or slides in ",
     );
-    const link = el("a", "", "Library");
+    const link = el("a", "", "Notes");
     link.href = "/library.html";
     text.append(
       link,
@@ -147,6 +148,7 @@ async function submitAnswer() {
     });
     showMessage(message, "", false);
     showResult(review);
+    showDueCount();
   } catch (error) {
     showMessage(message, error.message, true);
     button.disabled = false;
@@ -155,7 +157,7 @@ async function submitAnswer() {
 }
 
 function showResult(review) {
-  resultGrade.textContent = `${review.label} · ${review.score}/5`;
+  resultGrade.textContent = `Score ${review.score}/5`;
   resultGrade.className = `grade ${gradeClass(review.score)}`;
   resultRationale.textContent = review.rationale;
   resultExpected.textContent = review.expected_answer;

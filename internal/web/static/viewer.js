@@ -87,7 +87,7 @@ window.addEventListener("pagehide", () => {
 });
 try {
   await mountAccount();
-  if (!id) throw new Error("Choose a document from your library.");
+  if (!id) throw new Error("Choose a document from Notes.");
   const doc = await api(`/documents/${encodeURIComponent(id)}`);
   $("viewer-title").textContent = doc.title || "Untitled document";
   $("document-review").href =
@@ -119,7 +119,7 @@ try {
     if (doc.source_type === "pdf")
       showMessage(
         $("viewer-message"),
-        "This older upload has extracted text only. Re-upload the PDF from your library to view the original file. Your existing review progress is unchanged.",
+        "This older upload has extracted text only. Re-upload the PDF from Notes to view the original file. Your existing review progress is unchanged.",
         false,
       );
   }
