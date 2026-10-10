@@ -20,70 +20,40 @@
       </nav>
       <span id="account" class="account"></span>
     </header>
-    <main class="workspace">
-      <aside class="sidebar">
-        <div class="eyebrow">WORKSPACE</div>
-        <button class="side-item selected" id="all-documents">
-          All documents <span id="all-count"></span></button
-        ><button class="side-item" id="unfiled-documents">Unfiled</button>
-        <div class="sidebar-heading">
-          <span class="eyebrow">FOLDERS</span
-          ><button
-            id="new-folder"
-            class="icon-button"
-            aria-label="Create folder"
+    <main>
+      <div class="page-heading">
+        <div>
+          <a id="back-to-notes" class="text-link" href="/library.html" hidden
+            >← All notes</a
           >
-            +
-          </button>
+          <h1 id="library-title">Notes</h1>
+          <p id="library-subtitle" class="subtitle">
+            Upload a PDF, text or Markdown file. Recall writes questions from it,
+            usually within a minute.
+          </p>
         </div>
-        <div id="folders"></div>
-      </aside>
-      <div class="workspace-content">
-        <div class="page-heading">
-          <div>
-            <h1 id="library-title">Notes</h1>
-            <p class="subtitle">Upload notes here. Recall writes questions from each document, and Review asks them back.</p>
-          </div>
-          <a id="review-folder" class="button" href="/"
-            >Start review <span aria-hidden="true">↗</span></a
-          >
-        </div>
-        <section class="upload-panel">
-          <div class="upload-symbol" aria-hidden="true">↑</div>
-          <div>
-            <h2>Add notes</h2>
-            <p>
-              Questions are usually ready within a minute.
-            </p>
-            <span class="meta">PDF, TXT or Markdown · up to 25 MB</span>
-          </div>
-          <form id="upload">
-            <label class="button secondary file-label" for="file"
-              >Choose a document<input
+        <div class="section-actions">
+          <a id="review-folder" class="button secondary" hidden
+            >Review this folder</a
+          ><button id="new-folder" class="secondary" type="button">
+            New folder</button
+          ><form id="upload">
+            <label class="button file-label" for="file"
+              >Upload notes<input
                 id="file"
                 type="file"
                 accept=".pdf,.txt,.md,.markdown"
-                required /></label
-            ><span id="file-name" class="meta"></span
-            ><button type="submit" id="upload-button" hidden>
-              Upload document
-            </button>
+                required
+            /></label>
           </form>
-        </section>
-        <p id="upload-message" class="message" role="status" hidden></p>
-        <div class="section-heading">
-          <h2 id="documents-title">All documents</h2>
-          <div class="section-actions">
-            <button id="add-documents" class="secondary" type="button" hidden>
-              + Add documents
-            </button>
-            <span id="document-count" class="meta"></span>
-          </div>
         </div>
-        <p id="list-message" class="message" role="status" hidden></p>
-        <div id="documents" class="document-grid" aria-live="polite">
-          <div class="empty-state">Loading your library…</div>
-        </div>
+      </div>
+      <p id="upload-message" class="message" role="status" hidden></p>
+      <p id="list-message" class="message" role="status" hidden></p>
+      <h2 id="folders-title" hidden>Folders</h2>
+      <div id="folders" class="document-grid"></div>
+      <div id="documents" class="document-grid" aria-live="polite">
+        <div class="empty-state">Loading your notes…</div>
       </div>
     </main>
     <dialog id="folder-dialog">
@@ -117,10 +87,7 @@
     <dialog id="move-dialog">
       <form id="move-form">
         <div class="section-heading">
-          <div>
-            <p class="eyebrow">ORGANISE DOCUMENT</p>
-            <h2 id="move-dialog-title">Move document</h2>
-          </div>
+          <h2 id="move-dialog-title">Move note</h2>
           <button
             type="button"
             class="icon-button"
@@ -136,48 +103,7 @@
         <div class="dialog-actions">
           <button type="button" class="secondary" id="cancel-move">
             Cancel</button
-          ><button type="submit">Move document</button>
-        </div>
-      </form>
-    </dialog>
-    <dialog id="add-documents-dialog" class="document-picker-dialog">
-      <form id="add-documents-form">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">ADD EXISTING DOCUMENTS</p>
-            <h2 id="add-documents-title">Add to folder</h2>
-          </div>
-          <button
-            type="button"
-            class="icon-button"
-            id="close-add-documents"
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-        <p class="dialog-copy">
-          Selected documents will move from their current folder into this one.
-        </p>
-        <label for="document-search">Find a document</label>
-        <input
-          id="document-search"
-          type="search"
-          placeholder="Search by title"
-          autocomplete="off"
-        />
-        <fieldset
-          id="document-picker-list"
-          class="document-picker-list"
-        ></fieldset>
-        <p id="add-documents-message" class="message" role="status" hidden></p>
-        <div class="dialog-actions">
-          <span id="selected-document-count" class="meta">0 selected</span>
-          <button type="button" class="secondary" id="cancel-add-documents">
-            Cancel</button
-          ><button type="submit" id="confirm-add-documents" disabled>
-            Add selected
-          </button>
+          ><button type="submit">Move note</button>
         </div>
       </form>
     </dialog>
