@@ -8,11 +8,11 @@
 
 Recall turns your own notes into practice questions and asks them back just before you would forget them. It is for students and anyone learning from lecture slides, papers or documentation. Upload your notes once, then spend a few minutes a day answering questions in your own words.
 
-## Try Recall
+## Try the demo
 
-Open [Recall](https://recall.thenujawijesuriya.com) and create an account, or choose **Explore the demo** on the sign-in screen.
+Open [Recall](https://recall.thenujawijesuriya.com) and choose **Explore the demo** on the sign-in screen. There's no sign-up, and practice questions are ready to answer straight away.
 
-The demo comes with practice questions and allows one PDF upload of up to 10 pages. Answers are graded but progress is not saved, so every visitor sees the same questions.
+The demo also lets you upload one PDF of up to 10 pages. Answers are graded but progress is not saved, so every visitor sees the same questions. To use Recall with your own notes, create an account on the same screen.
 
 ## Key Features
 
@@ -20,9 +20,9 @@ The demo comes with practice questions and allows one PDF upload of up to 10 pag
 
 Upload a PDF, text or Markdown file and Recall writes questions from it, usually within a minute.
 
-- One upload button, and the upload starts as soon as you choose a file
-- A message tells you when the questions are ready, with a link to start reviewing
+- Each note shows when its questions are ready, with a button to review them
 - Folders sit on the same page as your notes, and a note moves into one from its menu
+- Upload while a folder is open and the note goes straight into it
 
 ### Review
 
@@ -59,7 +59,7 @@ Browser → API ── documents, jobs, reviews ──→ Postgres
 
 ## Built With
 
-Go, PostgreSQL with pgvector, Redis, Docker Compose, OpenAI and PDF.js. Live at [recall.thenujawijesuriya.com](https://recall.thenujawijesuriya.com).
+Go, PostgreSQL with pgvector, Redis, Docker Compose, OpenAI and PDF.js. [Try it live](https://recall.thenujawijesuriya.com).
 
 ## Run Locally
 
