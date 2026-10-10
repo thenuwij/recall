@@ -509,6 +509,15 @@ main {
   border-radius: 12px;
   color: var(--muted);
 }
+.upload-prompt .button {
+  padding: 14px 28px;
+  font-size: 16px;
+  margin-top: 8px;
+}
+#upload-message .button {
+  margin-left: 12px;
+  padding: 6px 14px;
+}
 .empty-state strong {
   display: block;
   font:

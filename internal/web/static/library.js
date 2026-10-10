@@ -1,4 +1,4 @@
-import { mountAccount, api, el, showMessage } from "/app.js";
+import { mountAccount, api, el, showDueCount, showMessage } from "/app.js";
 const $ = (id) => document.getElementById(id);
 const selected = new URLSearchParams(location.search).get("folder") || "";
 let documents = [],
@@ -6,6 +6,7 @@ let documents = [],
   pollTimer,
   editing = "",
   movingDocument,
+  uploadedId = "",
   account;
 const json = (method, value) => ({
   method,
@@ -23,6 +24,7 @@ async function loadDocuments() {
       return;
     }
     render();
+    showUploadProgress();
     showMessage($("list-message"), "", false);
     if (
       documents.some((d) =>
@@ -100,13 +102,66 @@ function openMoveDialog(doc) {
   $("move-dialog").showModal();
   $("move-folder").focus();
 }
+function showUploadProgress() {
+  const doc = documents.find((d) => d.id === uploadedId);
+  if (!doc) return;
+  const title = `“${doc.title || "Your note"}”`;
+  if (doc.status === "failed" || doc.cards_status === "failed") {
+    showMessage(
+      $("upload-message"),
+      `Recall couldn't read ${title}. Try uploading it again.`,
+      true,
+    );
+    uploadedId = "";
+    return;
+  }
+  if (doc.cards_status !== "ready") {
+    showMessage(
+      $("upload-message"),
+      `${title} is uploaded. Recall is writing its questions…`,
+      false,
+    );
+    return;
+  }
+  const review = el("a", "button", "Start review");
+  review.href = "/";
+  showMessage(
+    $("upload-message"),
+    `Questions for ${title} are ready. `,
+    false,
+  );
+  $("upload-message").append(review);
+  showDueCount();
+  uploadedId = "";
+}
+function uploadPrompt() {
+  const box = el("div", "empty-state upload-prompt"),
+    button = el("label", "button", "Upload notes");
+  button.htmlFor = "file";
+  box.append(
+    el("strong", "", "Upload your first notes"),
+    el(
+      "p",
+      "",
+      "Choose a PDF, text or Markdown file. Recall writes questions from it within about a minute, then Review asks them back.",
+    ),
+    button,
+  );
+  return box;
+}
 function render() {
   const folder = folders.find((f) => f.id === selected);
+  const empty = !folder && !documents.length && !folders.length;
   $("library-title").textContent = folder ? folder.name : "Notes";
   $("back-to-notes").hidden = !folder;
-  $("new-folder").hidden = Boolean(folder) || account?.is_demo === true;
-  $("upload").hidden = Boolean(folder);
-  $("library-subtitle").hidden = Boolean(folder);
+  $("new-folder").hidden =
+    Boolean(folder) || empty || account?.is_demo === true;
+  $("upload").hidden = Boolean(folder) || empty;
+  $("library-subtitle").hidden = Boolean(folder) || empty;
+  if (empty) {
+    $("documents").replaceChildren(uploadPrompt());
+    return;
+  }
   $("review-folder").hidden = !folder;
   if (folder)
     $("review-folder").href =
@@ -115,21 +170,15 @@ function render() {
   $("folders-title").hidden = !shownFolders.length;
   $("folders").replaceChildren(...shownFolders.map(renderFolder));
   const shown = documents.filter((d) => (d.folder_id || "") === selected);
-  if (!shown.length && !folder && folders.length) {
+  if (!shown.length && !folder) {
     $("documents").replaceChildren();
     return;
   }
   if (!shown.length) {
     const box = el("div", "empty-state");
     box.append(
-      el("strong", "", folder ? "This folder is empty." : "No notes yet."),
-      el(
-        "p",
-        "",
-        folder
-          ? "Choose Move to folder… on a note in Notes to add it here."
-          : "Upload notes to get started. Recall writes questions from them, and Review asks them back.",
-      ),
+      el("strong", "", "This folder is empty."),
+      el("p", "", "Choose Move to folder… on a note in Notes to add it here."),
     );
     $("documents").replaceChildren(box);
     return;
@@ -275,11 +324,7 @@ $("upload").onsubmit = async (event) => {
     const body = new FormData();
     body.append("file", file);
     const doc = await api("/documents/upload", { method: "POST", body });
-    showMessage(
-      $("upload-message"),
-      `“${doc.title || "Your note"}” is uploaded. Its questions will be ready in about a minute.`,
-      false,
-    );
+    uploadedId = doc.id;
     await loadDocuments();
   } catch (e) {
     showMessage($("upload-message"), e.message, true);
