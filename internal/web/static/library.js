@@ -222,7 +222,7 @@ function render() {
   );
   const folder = folders.find((f) => f.id === selected);
   $("library-title").textContent =
-    folder?.name || (selected === "unfiled" ? "Unfiled notes" : "Your library");
+    folder?.name || (selected === "unfiled" ? "Not in a folder" : "Notes");
   $("documents-title").textContent = folder
     ? "Documents in this folder"
     : selected === "unfiled"

@@ -81,7 +81,7 @@ async function showEmpty(nextDueAt) {
   } else if (documents.length === 0) {
     const steps = el("ol", "steps");
     steps.append(
-      el("li", "", "Upload a PDF, text or Markdown file in the Library."),
+      el("li", "", "Upload a PDF, text or Markdown file in Notes."),
       el("li", "", "Recall writes questions from it, usually within a minute."),
       el(
         "li",
@@ -89,7 +89,7 @@ async function showEmpty(nextDueAt) {
         "Answer them here. Each question comes back just before you would forget it.",
       ),
     );
-    const upload = el("a", "button", "Go to Library");
+    const upload = el("a", "button", "Go to Notes");
     upload.href = "/library.html";
     empty.replaceChildren(
       el("strong", "", "Start by adding your notes"),
@@ -100,9 +100,9 @@ async function showEmpty(nextDueAt) {
     const text = el(
       "p",
       "message",
-      "Nothing is scheduled. Upload lecture notes or slides in the ",
+      "Nothing is scheduled. Upload lecture notes or slides in ",
     );
-    const link = el("a", "", "Library");
+    const link = el("a", "", "Notes");
     link.href = "/library.html";
     text.append(
       link,
