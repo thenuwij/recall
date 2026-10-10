@@ -3,6 +3,7 @@ import {
   api,
   el,
   renderPassage,
+  showDueCount,
   showMessage,
   sourceLabel,
 } from "/app.js";
@@ -147,6 +148,7 @@ async function submitAnswer() {
     });
     showMessage(message, "", false);
     showResult(review);
+    showDueCount();
   } catch (error) {
     showMessage(message, error.message, true);
     button.disabled = false;
@@ -155,7 +157,7 @@ async function submitAnswer() {
 }
 
 function showResult(review) {
-  resultGrade.textContent = `${review.label} · ${review.score}/5`;
+  resultGrade.textContent = `Score ${review.score}/5`;
   resultGrade.className = `grade ${gradeClass(review.score)}`;
   resultRationale.textContent = review.rationale;
   resultExpected.textContent = review.expected_answer;

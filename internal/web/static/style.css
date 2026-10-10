@@ -762,7 +762,30 @@ mark {
   margin-top: 18px;
 }
 .citations {
-  padding-left: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 14px;
+}
+button.marker,
+.citations button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+button.marker {
+  margin: 0 2px;
+  font-size: 0.85em;
+  vertical-align: super;
+  line-height: 1;
+}
+button.marker:hover,
+.citations button:hover {
+  background: none;
+  text-decoration: underline;
 }
 .viewer-layout {
   max-width: 1300px;

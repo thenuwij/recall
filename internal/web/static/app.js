@@ -41,11 +41,19 @@ export async function mountAccount() {
   return account;
 }
 
-async function showDueCount() {
-  const link = document.querySelector('.app-header nav a[href="/"]');
+export async function showDueCount() {
   const due = await api("/reviews/due?limit=100");
-  if (link && due.cards.length > 0) {
-    link.append(el("span", "nav-count", String(due.cards.length)));
+  setNavDueCount(due.cards.length);
+}
+
+function setNavDueCount(count) {
+  const link = document.querySelector('.app-header nav a[href="/"]');
+  if (!link) {
+    return;
+  }
+  link.querySelector(".nav-count")?.remove();
+  if (count > 0) {
+    link.append(el("span", "nav-count", String(count)));
   }
 }
 
