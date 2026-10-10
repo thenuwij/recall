@@ -233,13 +233,6 @@ h3 {
   text-align: center;
   padding-right: 3px;
 }
-.brand-caption {
-  font-size: 8px;
-  letter-spacing: 1.4px;
-  margin-left: 10px;
-  color: var(--muted);
-  font-weight: 500;
-}
 .app-header nav {
   display: flex;
   align-self: stretch;
@@ -341,19 +334,8 @@ main {
   align-self: center;
   font-size: 14px;
 }
-.sidebar-note {
-  margin-top: auto;
-  padding: 60px 12px 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.8;
-}
-.tiny-mark {
-  font: italic 30px Georgia;
-  color: var(--accent);
-}
 .workspace-content {
-  padding: 48px 48px 0;
+  padding: 48px;
   min-width: 0;
   width: 100%;
   max-width: 1400px;
@@ -627,12 +609,22 @@ main {
   max-width: 420px;
   margin: 0 auto 16px;
 }
-.page-footer {
-  padding: 42px 0 24px;
-  text-align: center;
+.nav-count {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.steps {
+  max-width: 420px;
+  margin: 18px auto 24px;
+  padding-left: 20px;
+  text-align: left;
   color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.3px;
+  line-height: 1.9;
 }
 .message {
   font-size: 13px;
@@ -934,9 +926,6 @@ dialog .section-heading {
   }
 }
 @media (max-width: 1100px) {
-  .brand-caption {
-    display: none;
-  }
   .app-header {
     gap: 32px;
     padding: 0 24px;
@@ -945,7 +934,7 @@ dialog .section-heading {
     grid-template-columns: 185px minmax(0, 1fr);
   }
   .workspace-content {
-    padding: 36px 28px 0;
+    padding: 36px 28px;
   }
   .document-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -988,8 +977,7 @@ dialog .section-heading {
     padding: 16px 20px;
     display: block;
   }
-  .sidebar > .eyebrow,
-  .sidebar-note {
+  .sidebar > .eyebrow {
     display: none;
   }
   .sidebar > .side-item {
@@ -1014,7 +1002,7 @@ dialog .section-heading {
     width: auto;
   }
   .workspace-content {
-    padding: 28px 20px 0;
+    padding: 28px 20px;
   }
   h1 {
     font-size: 28px;

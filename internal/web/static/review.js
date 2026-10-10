@@ -45,7 +45,7 @@ async function loadQueue() {
     queue = due.cards;
     position = 0;
     if (queue.length === 0) {
-      showEmpty(due.next_due_at);
+      await showEmpty(due.next_due_at);
       return;
     }
     showCard();
@@ -55,12 +55,46 @@ async function loadQueue() {
   }
 }
 
-function showEmpty(nextDueAt) {
+async function showEmpty(nextDueAt) {
   dueCount.textContent = "";
-  if (nextDueAt) {
+  const { documents } = await api("/documents");
+  const writing = documents.find((doc) =>
+    [doc.status, doc.cards_status].some(
+      (status) => status === "queued" || status === "processing",
+    ),
+  );
+  if (writing) {
+    empty.replaceChildren(
+      el("strong", "", "Writing questions…"),
+      el(
+        "p",
+        "message",
+        `Recall is writing questions from ${writing.title || "your document"}. They will appear here when they are ready.`,
+      ),
+    );
+    setTimeout(loadQueue, 5000);
+  } else if (nextDueAt) {
     empty.replaceChildren(
       el("strong", "", "All caught up."),
       el("p", "message", `Your next card is due ${describeDue(nextDueAt)}.`),
+    );
+  } else if (documents.length === 0) {
+    const steps = el("ol", "steps");
+    steps.append(
+      el("li", "", "Upload a PDF, text or Markdown file in the Library."),
+      el("li", "", "Recall writes questions from it, usually within a minute."),
+      el(
+        "li",
+        "",
+        "Answer them here. Each question comes back just before you would forget it.",
+      ),
+    );
+    const upload = el("a", "button", "Go to Library");
+    upload.href = "/library.html";
+    empty.replaceChildren(
+      el("strong", "", "Start by adding your notes"),
+      steps,
+      upload,
     );
   } else {
     const text = el(
